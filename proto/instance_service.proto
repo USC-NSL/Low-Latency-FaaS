@@ -1,0 +1,35 @@
+
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+import "message.proto";
+
+package bess.pb;
+
+service BESSControl {
+  // ModuleCommand is a general API for calling these commands.
+  rpc ModuleCommand (CommandRequest) returns (CommandResponse) {}
+  
+  // Updates the forwarding rules at a vSwitch.
+  rpc UpdateNSHSwitchRule (NSHSwitchCommandAddArg) returns (google.protobuf.Empty) {};
+
+  // Updates the traffic volume at a packet source.
+  rpc UpdateTrafficVolume (FlowGenArg) returns (google.protobuf.Empty) {};
+}
+
+service InstanceControl {
+  // ModuleCommand is a general API for calling these commands.
+  rpc ModuleCommand (CommandRequest) returns (CommandResponse) {}
+
+  rpc SetDefaultNextFunction (NFTableEntry) returns (google.protobuf.Empty) {}
+  rpc SetNFTableEntry (NFTableEntry) returns (google.protobuf.Empty) {};
+  rpc RemoveNFTableEntry (NFTableEntry) returns (google.protobuf.Empty) {};
+  rpc SetNFInstanceTableEntry (NFInstanceTableEntry) returns (google.protobuf.Empty) {};
+  rpc RemoveNFInstanceTableEntry (NFInstanceTableEntry) returns (google.protobuf.Empty) {};
+
+  // Collect statistics of a traffic class
+  rpc GetTcStats (EmptyArg) returns (GetTcStatsResponse) {}
+
+  // Collect statistics of the queue in the port
+  rpc GetPortQueueStats (EmptyArg) returns (GetPortQueueStatsResponse) {};
+}

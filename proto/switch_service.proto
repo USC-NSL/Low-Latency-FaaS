@@ -1,0 +1,18 @@
+
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+import "message.proto";
+
+package bess.pb;
+
+service SwitchControl {
+	// Deletes one flow entry from FaaSConnTable.
+    rpc DeleteFlowEntry (FlowTableEntry) returns (google.protobuf.Empty) {}
+
+    // Sets one forwarding rule in FaaSInstanceTable.
+    rpc SetForwardingRule (InstanceTableEntry) returns (google.protobuf.Empty) {}
+
+    // Deletes one forwarding rule entry from FaaSInstanceTable.
+    rpc RemoveForwardingRule (InstanceTableEntry) returns (google.protobuf.Empty) {}
+}
