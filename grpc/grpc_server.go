@@ -17,6 +17,7 @@ const (
 )
 
 type FaaSControlServer struct {
+	// FaaSController is the central controller of the system to manage NF instances.
 	FaaSController		*controller.FaaSController
 }
 

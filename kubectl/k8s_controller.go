@@ -16,7 +16,7 @@ import (
 
 // k8s Controller.
 // |deploymentList|, |nodeList| and |podList| are variables for storing k8s information.
-// |namespace| is the namespace in kubernetes.
+// |namespace| is the namespace in kubernetes that the system will use.
 // |client| is API used for finding resources.
 // |dynamicClient| is API for managing deployments.
 type KubeController struct {

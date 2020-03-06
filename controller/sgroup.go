@@ -5,7 +5,7 @@ import (
 )
 
 // The abstraction of minimal scheduling unit (or sub-chain) in each core.
-// |instances| are the NF instances belong to the scheduling group.
+// |instances| are the NF instances belonging to the scheduling group.
 // |QueueLength, QueueCapacity| are the information of the queue before each sGroup.
 // |traffic| describes the observed traffic in the sGroup.
 // |worker| is the worker node that the sGroup assigned to.

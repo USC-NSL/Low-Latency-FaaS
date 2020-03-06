@@ -5,6 +5,12 @@ import "message.proto";
 
 package bess.pb;
 
+// The FaaSControl is a gRPC server running on the FaaSController.
 service FaaSControl {
+	// When a new flows comes, it will inform the controller about its FlowInfo (a five-tuple),
+	// so that the controller can set up new instances to serve the flow.
 	rpc UpdateFlow (FlowInfo) returns (FlowTableEntry) {}
+
+	// TODO: When a new instance sets up, it will inform the controller about its TID,
+	// which will be used by the executor on the machine to schedule the instance.
 }

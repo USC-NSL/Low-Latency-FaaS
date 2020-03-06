@@ -8,13 +8,13 @@ import (
 // The abstraction of worker node.
 // |name| is the name of the node in kubernetes.
 // |ip| is the ip address of the node.
-// |vSwitchPort| is the port for vSwitch on the node.
-// |executorPort| is the port of executor on the node.
+// |vSwitchPort| is the port for vSwitch to establish gRCP server on the node.
+// |executorPort| is the port of executor to establish gRCP server on the node.
 // |cores| is the abstraction of cores on the node.
 // |coreNumOffset| is designed for mapping from cores array to real physical core number.
 //                 Specifically, coreNumOffset + index (in cores array) = real core number.
 // |freeInstances| are the NF instances not assigned to any core yet (but still in memory).
-// |instancePortPool| manages the ports taken by instances on the node.
+// |instancePortPool| manages the ports taken by instances on the node to avoid port conflicts.
 type Worker struct {
 	name string
 	ip string

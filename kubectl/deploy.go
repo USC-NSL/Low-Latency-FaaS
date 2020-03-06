@@ -13,6 +13,16 @@ import (
 
 // Defines all constants.
 const kDockerhubUser string = "165749"
+// All kinds of possible NFs.
+var moduleNameMappings = map[string] string {
+	"original": "None",
+	"fc": "FlowCounter",
+	"nat": "NAT",
+	"filter": "Filter",
+	"chacha": "CHACHA",
+	"aesenc": "AESCBCEnc",
+	"aesdec": "AESCBCDec",
+}
 
 // TODO: Rename deployment
 func toDPDKDeploymentName(nfName string, funcIndex int) string {
@@ -26,16 +36,6 @@ func (k8s *KubeController) generateDPDKDeployment(nfName string, funcIndex int,
 	funcID := strconv.Itoa(funcIndex)
 	deploymentName := toDPDKDeploymentName(nfName, funcIndex)
 	// TODO: Rename deployment
-
-	moduleNameMappings := map[string] string {
-		"original": "None",
-		"fc": "FlowCounter",
-		"nat": "NAT",
-		"filter": "Filter",
-		"chacha": "CHACHA",
-		"aesenc": "AESCBCEnc",
-		"aesdec": "AESCBCDec",
-	}
 	moduleName, exists := moduleNameMappings[nfName]
 	if !exists {
 		moduleName  = "None"
@@ -170,10 +170,10 @@ func (k8s *KubeController) generateDPDKDeployment(nfName string, funcIndex int,
 	return deployment
 }
 
-// Creates a DPDK FaaS Deployment that runs |nfName| in |namespace|.
-// The target NF runs in |nodeName|'s |workerCore|.
+// Creates a DPDK FaaS Deployment for NF |nfName|, which will run at core |workerCore| of node |workerCore|.
 func (k8s *KubeController) CreateDPDKDeployment(nfName string, funcIndex int,
 	nodeName string, workerCore int, hostPort int) (*unstructured.Unstructured, error) {
+	// TODO: Redesign the name of deployment.
 
 	deploymentAPI := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 	deploymentConfig := k8s.generateDPDKDeployment(nfName, funcIndex, nodeName, workerCore, hostPort)
@@ -187,8 +187,9 @@ func (k8s *KubeController) CreateDPDKDeployment(nfName string, funcIndex int,
 	return deployment, nil
 }
 
-// Deletes a FaaS Deployment that runs |nfName| in |namespace|.
+// Deletes a FaaS Deployment by its |nfName| and |funcIndex|.
 func (k8s *KubeController) DeleteDeployment(nfName string, funcIndex int) {
+	// TODO: Redesign the name of deployment.
 	deploymentIndex := strconv.Itoa(funcIndex)
 	deploymentName := fmt.Sprintf("%s.dep.%s", nfName, deploymentIndex)
 

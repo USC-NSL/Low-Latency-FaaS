@@ -17,6 +17,7 @@ const (
 	kTrafficGenCores = 4
 )
 
+// TODO: Remove the connection from the map when an instance is deleted.
 type GRPCController struct {
 	// Connections to function instances.
 	instanceAddressToConnMap 	map[string]*grpc.ClientConn

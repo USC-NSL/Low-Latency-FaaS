@@ -5,7 +5,7 @@ import (
 )
 
 // The controller of the FaaS system for NFV.
-// |workers| are all the worker nodes in the system.
+// |workers| are all the worker nodes (i.e. physical or virtual machines) in the system.
 type FaaSController struct {
 	workers map[string]*Worker
 	//TODO: instances map[string]Instance
