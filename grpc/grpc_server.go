@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 
-	controller "github.com/USC-NSL/Low-Latency-FaaS/controller"
 	pb "github.com/USC-NSL/Low-Latency-FaaS/proto"
 	grpc "google.golang.org/grpc"
 )
@@ -16,12 +15,15 @@ const (
 	kGrpcPort = ":10515"
 )
 
-type FaaSControlServer struct {
-	// FaaSController is the central controller of the system to manage NF instances.
-	FaaSController		*controller.FaaSController
+type Controller interface {
+	UpdateFlow(srcIP string, srcPort uint32, dstIP string, dstPort uint32, protocol uint32) error
 }
 
-func NewGRPCServer(c *controller.FaaSController) {
+type GRPCServer struct {
+	FaaSController		Controller
+}
+
+func NewGRPCServer(c Controller) {
 	listen, err := net.Listen("tcp", kGrpcPort)
 	if err != nil {
 		fmt.Printf("Failed to listen: %v\n", err)
@@ -29,15 +31,15 @@ func NewGRPCServer(c *controller.FaaSController) {
 	}
 
 	s := grpc.NewServer()
-	pb.RegisterFaaSControlServer(s, &FaaSControlServer{FaaSController: c})
+	pb.RegisterFaaSControlServer(s, &GRPCServer{FaaSController: c})
 
 	if err := s.Serve(listen); err != nil {
 		fmt.Printf("Error: failed to start FaaS Server: %v\n", err)
 	}
 }
 
-// Invoked when a new flow comes to system. Handled by UpdateFlow of FaaSController.
-func (s *FaaSControlServer) UpdateFlow(context context.Context, flowInfo *pb.FlowInfo) (*pb.FlowTableEntry, error) {
+// Invoked when a new flow comes to system. Will forward to the system controller (with updateFlow method).
+func (s *GRPCServer) UpdateFlow(context context.Context, flowInfo *pb.FlowInfo) (*pb.FlowTableEntry, error) {
 	s.FaaSController.UpdateFlow(flowInfo.Ipv4Src, flowInfo.TcpSport, flowInfo.Ipv4Dst, flowInfo.TcpDport, flowInfo.Ipv4Protocol)
 	response := &pb.FlowTableEntry{
 	}

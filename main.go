@@ -8,13 +8,15 @@ import (
 
 	cli "github.com/USC-NSL/Low-Latency-FaaS/cli"
 	controller "github.com/USC-NSL/Low-Latency-FaaS/controller"
+	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
 	prompt "github.com/c-bata/go-prompt"
 )
 
 func main() {
 	FaaSController := controller.NewFaaSController()
-
+	go grpc.NewGRPCServer(FaaSController)
 	e := cli.NewExecutor(FaaSController)
+
 	p := prompt.New(
 		e.Execute,
 		cli.Complete,

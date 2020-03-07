@@ -2,10 +2,12 @@
 package controller
 
 import (
+	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
 	utils "github.com/USC-NSL/Low-Latency-FaaS/utils"
 )
 
 // The abstraction of worker node.
+// |VSwitchGRPCHandler| and |ExecutorGRPCHandler| are functions to handle gRPC requests to vSwitch and executor on the node.
 // |name| is the name of the node in kubernetes.
 // |ip| is the ip address of the node.
 // |vSwitchPort| is the port for vSwitch to establish gRCP server on the node.
@@ -16,6 +18,8 @@ import (
 // |freeInstances| are the NF instances not assigned to any core yet (but still in memory).
 // |instancePortPool| manages the ports taken by instances on the node to avoid port conflicts.
 type Worker struct {
+	grpc.VSwitchGRPCHandler
+	grpc.ExecutorGRPCHandler
 	name string
 	ip string
 	vSwitchPort int

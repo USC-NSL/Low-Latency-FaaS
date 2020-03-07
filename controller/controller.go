@@ -2,17 +2,20 @@
 package controller
 
 import (
+	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
 )
 
 // The controller of the FaaS system for NFV.
+// |ToRGRPCHandler| are functions to handle gRPC requests to the ToR switch.
 // |workers| are all the worker nodes (i.e. physical or virtual machines) in the system.
 type FaaSController struct {
+	grpc.ToRGRPCHandler
 	workers map[string]*Worker
 	//TODO: instances map[string]Instance
 }
 
 // Creates a new FaaS controller.
-func NewFaaSController() *FaaSController{
+func NewFaaSController() *FaaSController {
 	c := &FaaSController{
 		workers: make(map[string]*Worker),
 	}
