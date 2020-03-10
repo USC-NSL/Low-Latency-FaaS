@@ -2,7 +2,9 @@
 package cli
 
 import (
+	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	controller "github.com/USC-NSL/Low-Latency-FaaS/controller"
@@ -10,12 +12,12 @@ import (
 )
 
 type Executor struct {
-	NFVController 	*controller.FaaSController
+	FaaSController 	*controller.FaaSController
 }
 
-func NewExecutor(NFVController *controller.FaaSController) (*Executor) {
+func NewExecutor(FaaSController *controller.FaaSController) (*Executor) {
 	return &Executor {
-		NFVController : NFVController,
+		FaaSController : FaaSController,
 	}
 }
 
@@ -29,8 +31,11 @@ func (e *Executor) Execute(s string) {
 	if s == "" {
 		return
 	} else if s == "quit" {
-		//kubectl.K8sHandlerResetAllFunctions()
-		os.Exit(0)
+		if err := e.FaaSController.CleanUpAllWorkers(); err != nil {
+			fmt.Printf("Failed to exit: %s\n", err.Error())
+		} else {
+			os.Exit(0)
+		}
 	}
 
 	words := strings.Fields(s)
@@ -44,5 +49,25 @@ func (e *Executor) Execute(s string) {
 	} else if words[0] == "nodes" {
 		kubectl.K8sHandler.FetchNodes()
 		kubectl.K8sHandler.PrintNodes()
+	} else if words[0] == "worker" {
+		if len(words) > 1 {
+			name := words[1]
+			fmt.Printf(e.FaaSController.GetWorkerInfoByName(name))
+		} else {
+			fmt.Printf(e.FaaSController.GetWorkersInfo())
+		}
+	} else if words[0] == "add" && len(words) > 2 {
+		nodeName := words[1]
+		funcType := words[2]
+		if err := e.FaaSController.CreateInstance(nodeName, funcType); err != nil {
+			fmt.Printf("Failed to create %s on %s: %s.\n", funcType, nodeName, err.Error())
+		}
+	} else if words[0] == "rm" && len(words) > 3 {
+		nodeName := words[1]
+		funcType := words[2]
+		port, _ := strconv.Atoi(words[3])
+		if err := e.FaaSController.DestroyInstance(nodeName, funcType, port); err != nil {
+			fmt.Printf("Failed to delete %s on %s: %s.\n", funcType, nodeName, err.Error())
+		}
 	}
 }

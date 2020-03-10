@@ -24,19 +24,15 @@ var moduleNameMappings = map[string] string {
 	"aesdec": "AESCBCDec",
 }
 
-// TODO: Rename deployment
-func toDPDKDeploymentName(nfName string, funcIndex int) string {
-	funcID := strconv.Itoa(funcIndex)
-	return fmt.Sprintf("%s.dep.%s", nfName, funcID)
-}
+// Create a NF instance with type |funcType| on node |nodeName| at core |workerCore|,
+// also assign the port |hostPort| of the host for the instance to receive gRPC requests.
+// In Kubernetes, the instance is run as a deployment with name "nodeName-funcType-portId".
+func (k8s *KubeController) generateDPDKDeployment(nodeName string, workerCore int, funcType string, hostPort int) unstructured.Unstructured {
+	coreId := strconv.Itoa(workerCore)
+	portId := strconv.Itoa(hostPort)
+	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, funcType, portId)
 
-func (k8s *KubeController) generateDPDKDeployment(nfName string, funcIndex int,
-	nodeName string, workerCore int, hostPort int) unstructured.Unstructured {
-	coreID := strconv.Itoa(workerCore)
-	funcID := strconv.Itoa(funcIndex)
-	deploymentName := toDPDKDeploymentName(nfName, funcIndex)
-	// TODO: Rename deployment
-	moduleName, exists := moduleNameMappings[nfName]
+	moduleName, exists := moduleNameMappings[funcType]
 	if !exists {
 		moduleName  = "None"
 	}
@@ -52,14 +48,14 @@ func (k8s *KubeController) generateDPDKDeployment(nfName string, funcIndex int,
 				"replicas": 1,
 				"selector": map[string]interface{}{
 					"matchLabels": map[string]interface{}{
-						"app": nfName + funcID,
+						"app": deploymentName,
 						// TODO: Modify label
 					},
 				},
 				"template": map[string]interface{}{
 					"metadata": map[string]interface{}{
 						"labels": map[string]interface{}{
-							"app": nfName + funcID,
+							"app": deploymentName,
 							// TODO: Modify label
 						},
 					},
@@ -67,7 +63,7 @@ func (k8s *KubeController) generateDPDKDeployment(nfName string, funcIndex int,
 					"spec": map[string]interface{}{
 						"containers": []map[string]interface{}{
 							{ // Container 0
-								"name":  nfName,
+								"name":  funcType,
 								"image": kDockerhubUser + "/nf:base",
 								"imagePullPolicy": "Always",
 								"ports": []map[string]interface{}{
@@ -80,8 +76,8 @@ func (k8s *KubeController) generateDPDKDeployment(nfName string, funcIndex int,
 								},
 								"command": []string{
 									"/app/main",
-									"--vport=vport_"+coreID,
-									"--worker_core="+coreID,
+									"--vport=vport_"+coreId,
+									"--worker_core="+coreId,
 									"--module_name="+moduleName,
 								},
 								"volumeMounts": []map[string]interface{}{
@@ -170,28 +166,27 @@ func (k8s *KubeController) generateDPDKDeployment(nfName string, funcIndex int,
 	return deployment
 }
 
-// Creates a DPDK FaaS Deployment for NF |nfName|, which will run at core |workerCore| of node |workerCore|.
-func (k8s *KubeController) CreateDPDKDeployment(nfName string, funcIndex int,
-	nodeName string, workerCore int, hostPort int) (*unstructured.Unstructured, error) {
+// Create a NF instance with type |funcType| on node |nodeName| at core |workerCore|,
+// also assign the port |hostPort| of the host for the instance to receive gRPC requests.
+// Essentially, it will call function generateDPDKDeployment to generate a deployment in kubernetes.
+func (k8s *KubeController) CreateDeployment(nodeName string, workerCore int, funcType string,
+	hostPort int) (*unstructured.Unstructured, error) {
 	// TODO: Redesign the name of deployment.
 
 	deploymentAPI := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
-	deploymentConfig := k8s.generateDPDKDeployment(nfName, funcIndex, nodeName, workerCore, hostPort)
+	deploymentConfig := k8s.generateDPDKDeployment(nodeName, workerCore, funcType, hostPort)
 
 	deployment, err := k8s.dynamicClient.Resource(deploymentAPI).Namespace(k8s.namespace).Create(&deploymentConfig, metav1.CreateOptions{})
 	if err != nil {
-		fmt.Printf("Failed to create Deployment[ns=%s,nf=%s] on Node[%s].\n", k8s.namespace, nfName, nodeName)
 		return nil, err
 	}
-
+	fmt.Printf("Create instance [%s] on %s with port %d successfully.\n", funcType, nodeName, hostPort)
 	return deployment, nil
 }
 
-// Deletes a FaaS Deployment by its |nfName| and |funcIndex|.
-func (k8s *KubeController) DeleteDeployment(nfName string, funcIndex int) {
-	// TODO: Redesign the name of deployment.
-	deploymentIndex := strconv.Itoa(funcIndex)
-	deploymentName := fmt.Sprintf("%s.dep.%s", nfName, deploymentIndex)
+// Delete a NF instance with type |funcType| on node |nodeName| at core |workerCore| with assigned port |hostPort|.
+func (k8s *KubeController) DeleteDeployment(nodeName string, funcType string, hostPort int) error {
+	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, funcType, strconv.Itoa(hostPort))
 
 	deploymentAPI := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 	deletePolicy := metav1.DeletePropagationForeground
@@ -199,9 +194,9 @@ func (k8s *KubeController) DeleteDeployment(nfName string, funcIndex int) {
 		PropagationPolicy: &deletePolicy,
 	}
 
-	err := k8s.dynamicClient.Resource(deploymentAPI).Namespace(k8s.namespace).Delete(deploymentName, &deleteOptions)
-	if err != nil {
-		fmt.Printf("Failed to delete Deployment[ns=%s,nf=%s].\n", k8s.namespace, nfName)
-		panic(err)
+	if err := k8s.dynamicClient.Resource(deploymentAPI).Namespace(k8s.namespace).Delete(deploymentName, &deleteOptions); err != nil {
+		return err
 	}
+	fmt.Printf("Delete instance [%s] on %s with port %d successfully.\n", funcType, nodeName, hostPort)
+	return nil
 }

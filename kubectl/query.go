@@ -8,6 +8,8 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"k8s.io/apimachinery/pkg/labels"
 )
 
 func (k8s *KubeController) FetchPods() {
@@ -51,7 +53,9 @@ func (k8s *KubeController) PrintPods() {
 	}
 }
 
-func (k8s *KubeController) GetPodByLabel(nfName string, instanceID int) (corev1.Pod, bool) {
+// Get a pod with its label "nodeName-funcType-hostPort" from fetched results.
+// Note: Remember to call function FetchPods before.
+func (k8s *KubeController) GetPodByLabel(nodeName string, funcType string, hostPort int) (corev1.Pod, bool) {
 	podCache, isSuccess := k8s.podList.Load(k8s.namespace)
 	if !isSuccess {
 		return corev1.Pod{}, false
@@ -62,9 +66,7 @@ func (k8s *KubeController) GetPodByLabel(nfName string, instanceID int) (corev1.
 		return corev1.Pod{}, false
 	}
 
-	funcID := strconv.Itoa(instanceID)
-	label := nfName + funcID
-	// TODO: Modify the label for finding pod
+	label := fmt.Sprintf("%s-%s-%s", nodeName, funcType, strconv.Itoa(hostPort))
 	for i := range l.Items {
 		if l.Items[i].Labels != nil && l.Items[i].Labels["app"] == label {
 			return l.Items[i], true
@@ -73,16 +75,16 @@ func (k8s *KubeController) GetPodByLabel(nfName string, instanceID int) (corev1.
 	return corev1.Pod{}, false
 }
 
-// TODO: Remove unused function
-//func (k8s *KubeController) QueryPodByLabel(nfName string, instanceID int) (*corev1.PodList, error) {
-//	funcID := strconv.Itoa(instanceID)
-//	labelsMapping := map[string] string {"app": nfName + funcID}
-//	// TODO: Modify the label for finding pod
-//	set := labels.Set(labelsMapping)
-//
-//	pods, err := k8s.client.CoreV1().Pods(k8s.namespace).List(metav1.ListOptions{LabelSelector: set.AsSelector().String()})
-//	return pods, err
-//}
+// Query a pod in kubernetes with its label "nodeName-funcType-hostPort", which is the same with its deployment name.
+// Note: No need to call function FetchPods before.
+func (k8s *KubeController) QueryPodByLabel(nodeName string, funcType string, hostPort int) (*corev1.PodList, error) {
+	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, funcType, strconv.Itoa(hostPort))
+	labelsMapping := map[string] string {"app": deploymentName}
+	set := labels.Set(labelsMapping)
+
+	pods, err := k8s.client.CoreV1().Pods(k8s.namespace).List(metav1.ListOptions{LabelSelector: set.AsSelector().String()})
+	return pods, err
+}
 
 func (k8s *KubeController) FetchDeployments() {
 	l, _ := k8s.client.AppsV1().Deployments(k8s.namespace).List(metav1.ListOptions{})
@@ -107,9 +109,9 @@ func (k8s *KubeController) PrintDeployments() {
 	}
 }
 
-func (k8s *KubeController) GetDeploymentByFunctionIndex(nfName string, instanceID int) (appsv1.Deployment, bool) {
-	deploymentName := toDPDKDeploymentName(nfName, instanceID)
-	// TODO: Rename deployment
+// Get a deployment with name |deploymentName| from fetched results.
+// Note: Remember to call function FetchDeployments before.
+func (k8s *KubeController) GetDeploymentByName(deploymentName string) (appsv1.Deployment, bool) {
 	return k8s.GetDeployment(deploymentName)
 }
 

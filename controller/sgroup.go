@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"fmt"
 )
 
 // The abstraction of minimal scheduling unit (or sub-chain) in each core.
@@ -33,4 +34,16 @@ func newSGroup() *SGroup {
 		coreId: 0,
 	}
 	return &sGroup
+}
+
+func (s *SGroup) String() string {
+	info := ""
+	for idx, instance := range s.instances {
+		if idx == 0 {
+			info += fmt.Sprintf("%s", instance)
+		} else {
+			info += fmt.Sprintf("->%s", instance)
+		}
+	}
+	return info
 }
