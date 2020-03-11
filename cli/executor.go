@@ -15,7 +15,7 @@ type Executor struct {
 	FaaSController 	*controller.FaaSController
 }
 
-func NewExecutor(FaaSController *controller.FaaSController) (*Executor) {
+func NewExecutor(FaaSController *controller.FaaSController) *Executor {
 	return &Executor {
 		FaaSController : FaaSController,
 	}
@@ -68,6 +68,16 @@ func (e *Executor) Execute(s string) {
 		port, _ := strconv.Atoi(words[3])
 		if err := e.FaaSController.DestroyInstance(nodeName, funcType, port); err != nil {
 			fmt.Printf("Failed to delete %s on %s: %s.\n", funcType, nodeName, err.Error())
+		}
+	} else if words[0] == "kubectl" && len(words) > 2 {
+		command := words[1]
+		deploymentName := words[2]
+		if command == "rm" {
+			if err := kubectl.K8sHandler.DeleteDeploymentByName(deploymentName); err != nil {
+				fmt.Printf("Failed to remove deployment %s: %s.\n", deploymentName, err.Error())
+			} else {
+				fmt.Printf("Remove deployment %s successfully!\n", deploymentName)
+			}
 		}
 	}
 }

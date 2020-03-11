@@ -49,14 +49,12 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, workerCore in
 				"selector": map[string]interface{}{
 					"matchLabels": map[string]interface{}{
 						"app": deploymentName,
-						// TODO: Modify label
 					},
 				},
 				"template": map[string]interface{}{
 					"metadata": map[string]interface{}{
 						"labels": map[string]interface{}{
 							"app": deploymentName,
-							// TODO: Modify label
 						},
 					},
 
@@ -171,8 +169,6 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, workerCore in
 // Essentially, it will call function generateDPDKDeployment to generate a deployment in kubernetes.
 func (k8s *KubeController) CreateDeployment(nodeName string, workerCore int, funcType string,
 	hostPort int) (*unstructured.Unstructured, error) {
-	// TODO: Redesign the name of deployment.
-
 	deploymentAPI := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 	deploymentConfig := k8s.generateDPDKDeployment(nodeName, workerCore, funcType, hostPort)
 
@@ -187,7 +183,11 @@ func (k8s *KubeController) CreateDeployment(nodeName string, workerCore int, fun
 // Delete a NF instance with type |funcType| on node |nodeName| at core |workerCore| with assigned port |hostPort|.
 func (k8s *KubeController) DeleteDeployment(nodeName string, funcType string, hostPort int) error {
 	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, funcType, strconv.Itoa(hostPort))
+	return k8s.DeleteDeploymentByName(deploymentName)
+}
 
+// Delete a kubernetes deployment with the name |deploymentName|.
+func (k8s *KubeController) DeleteDeploymentByName(deploymentName string) error {
 	deploymentAPI := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 	deletePolicy := metav1.DeletePropagationForeground
 	deleteOptions := metav1.DeleteOptions{
@@ -197,6 +197,5 @@ func (k8s *KubeController) DeleteDeployment(nodeName string, funcType string, ho
 	if err := k8s.dynamicClient.Resource(deploymentAPI).Namespace(k8s.namespace).Delete(deploymentName, &deleteOptions); err != nil {
 		return err
 	}
-	fmt.Printf("Delete instance [%s] on %s with port %d successfully.\n", funcType, nodeName, hostPort)
 	return nil
 }

@@ -17,6 +17,7 @@ func Complete(in prompt.Document) []prompt.Suggest {
 		{Text: "workers", Description: "List all workers."},
 		{Text: "add", Description: "Create a NF instance on specific node."},
 		{Text: "rm", Description: "Delete a NF instance on specific node."},
+		{Text: "kubectl", Description: "Control kubernetes clusters."},
 		{Text: "quit", Description: "Clean up and quit the controller."},
 	}
 

@@ -4,6 +4,7 @@ package kubectl
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -91,6 +92,16 @@ func (k8s *KubeController) FetchDeployments() {
 	k8s.deploymentList.Store(k8s.namespace, l)
 }
 
+func formatDuration(duration time.Duration) string {
+	if duration.Hours() > 1 {
+		return fmt.Sprintf("%dh", int(duration.Hours()))
+	} else if duration.Minutes() > 1 {
+		return fmt.Sprintf("%dm", int(duration.Minutes()))
+	} else {
+		return fmt.Sprintf("%ds", int(duration.Seconds()))
+	}
+}
+
 func (k8s *KubeController) PrintDeployments() {
 	deploymentCache, isSuccess := k8s.deploymentList.Load(k8s.namespace)
 	if !isSuccess {
@@ -103,9 +114,11 @@ func (k8s *KubeController) PrintDeployments() {
 	}
 
 	fmt.Printf("List all deployments.\n")
-	fmt.Printf("| %-20s|\n", "Deployment")
+	fmt.Printf("| %-20s| %-6s| %-6s|\n", "Deployment", "Age", "Ready")
 	for i := range l.Items {
-		fmt.Printf("| %-20s|\n", l.Items[i].Name)
+		duration := time.Since(l.Items[i].CreationTimestamp.Time)
+		fmt.Printf("| %-20s| %-6s| %-6s|\n", l.Items[i].Name, formatDuration(duration),
+			fmt.Sprintf("%d/%d", l.Items[i].Status.ReadyReplicas, l.Items[i].Status.Replicas))
 	}
 }
 
