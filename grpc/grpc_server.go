@@ -45,3 +45,5 @@ func (s *GRPCServer) UpdateFlow(context context.Context, flowInfo *pb.FlowInfo) 
 	}
 	return response, nil
 }
+
+// TODO: Add the service for receiving information from instances (e.g., when an instance is created or updates the statistics).

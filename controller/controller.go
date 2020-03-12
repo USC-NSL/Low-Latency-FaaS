@@ -24,19 +24,19 @@ func NewFaaSController() *FaaSController {
 	}
 
 	// Create worker for cluster nodes.
-	// Now core 0 is reserved for scheduling executor.
+	// Now core 0 is reserved for the scheduler on the machine.
 	// TODO: Replace hard-code information with reading from k8s configurations.
 	c.createWorker("uscnsl", "204.57.7.3", 10514, 10515, 1,7)
 	c.createWorker("ubuntu", "204.57.7.14", 10514, 10515, 1,7)
 	return c
 }
 
-func(c *FaaSController) createWorker(name string, ip string, vSwitchPort int, executorPort int,
+func(c *FaaSController) createWorker(name string, ip string, vSwitchPort int, schedulerPort int,
 	coreNumOffset int,coreCount int) {
 	if _, exists := c.workers[name]; exists {
 		return
 	}
-	c.workers[name] = newWorker(name, ip, vSwitchPort, executorPort, coreNumOffset, coreCount)
+	c.workers[name] = newWorker(name, ip, vSwitchPort, schedulerPort, coreNumOffset, coreCount)
 }
 
 func (c *FaaSController) getWorker(nodeName string) *Worker {

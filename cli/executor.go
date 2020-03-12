@@ -25,6 +25,13 @@ func NewExecutor(FaaSController *controller.FaaSController) *Executor {
 // TODO: Add more commands.
 // The list of all API commands:
 // 1. Query and Print: pods, deps, nodes.
+// 2. List all the information of workers in the system: worker.
+// 3. Create an instance on a node:
+//    - add |nodeName| |funcType|
+// 4. Remove an instance on a node:
+//    - rm |nodeName| |funcType|
+// 5. Destroy a deployment in kubernetes by its name:
+//    - kubectl rm |deploymentName|
 //---------------------------------------------------------
 func (e *Executor) Execute(s string) {
 	s = strings.TrimSpace(s)
