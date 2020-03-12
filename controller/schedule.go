@@ -8,5 +8,7 @@ import (
 
 // When a new flow comes to the system, needs to allocating instances to serve it according to its logical graph.
 // Five-tuple (srcIp, scrPort, dstIP, dstPort, protocol) describes the new incoming flow in the system.
-func (c *FaaSController) UpdateFlow(srcIP string, srcPort uint32, dstIP string, dstPort uint32, protocol uint32) {
+// TODO: Complete the reasons for returning errors.
+func (c *FaaSController) UpdateFlow(srcIP string, srcPort uint32, dstIP string, dstPort uint32, protocol uint32) error {
+	return nil
 }
