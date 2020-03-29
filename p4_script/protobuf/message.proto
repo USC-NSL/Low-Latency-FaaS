@@ -1,0 +1,95 @@
+
+syntax = "proto3";
+
+import "google/protobuf/any.proto";
+
+package bess.pb;
+
+message Error {
+  int32 code = 1;  // 0 for success, errno (>0) for failure
+  string errmsg = 2;
+}
+
+message EmptyArg {}
+
+message CommandRequest {
+  string name = 1;              /// Name of module/port/driver
+  string cmd = 2;               /// Name of command
+  google.protobuf.Any arg = 3;  /// Command argument
+}
+
+message CommandResponse {
+  Error error = 1;
+  google.protobuf.Any data = 2;  /// Command response (see *_msg.proto)
+}
+
+
+/* NSH Encapsulation module modifies the (spi, si) fields in a NSH 
+ * header.
+ */
+message NSHencapArg {
+  uint32 spi = 1;
+  uint32 si = 2;
+  uint64 weight = 3;
+}
+
+message GetTcStatsResponse {
+  Error error = 1;
+  double timestamp = 2;  /// The time that stat counters were read
+
+  /// The following counters represent a snapshot of the total amount of accumulated traffic
+  /// statistics of a module since its creation.
+  uint64 count = 3;    /// # of scheduled times
+  uint64 cycles = 4;   /// CPU cycles
+  uint64 packets = 5;  /// # of packets
+  uint64 bits = 6;     /// # of bits
+}
+
+message GetPortQueueStatsResponse {
+  Error error = 1;
+
+  uint32 inc_length = 2;
+  uint32 inc_capacity = 3;
+  uint32 out_length = 4;
+  uint32 out_capacity = 5;
+}
+
+// NSHSwitch operations
+message NSHSwitchCommandAddArg{
+  uint32 spi = 1;
+  uint32 si = 2;
+  uint64 gate = 3;
+}
+
+/**
+ * The FlowGen module generates simulated TCP flows of packets 
+ * with correct SYN/FIN flags and sequence numbers. FaaS-Controller 
+ * implements a GRPC call to control the real-time traffic volume.
+ */
+message FlowGenArg {
+  bytes template = 1; /// The packet "template". All data packets are derived from this template and contain the same payload.
+  double pps = 2; /// The total number of packets per second to generate.
+  double flow_rate = 3; /// The number of new flows to create every second. flow_rate must be <= pps.
+  double flow_duration = 4; /// The lifetime of a flow in seconds.
+  string arrival = 5; /// The packet arrival distribution -- must be either "uniform" or "exponential"
+  string duration = 6; /// The flow duration distribution -- must be either "uniform" or "pareto"
+  bool quick_rampup = 7; /// Whether or not to populate the flowgenerator with initial flows (start generating full pps rate immediately) or to wait for new flows to be generated naturally (all flows have a SYN packet).
+  uint32 ip_src_range = 8; /// When generating new flows, FlowGen modifies the template packet by changing the IP src, incrementing it by at most ip_src_range (e.g., if the base packet is 10.0.0.1 and range is 5, it will generate packets with IPs 10.0.0.1-10.0.0.6).
+  uint32 ip_dst_range = 9; /// When generating new flows, FlowGen modifies the template packet by changing the IP dst, incrementing it by at most ip_dst_range.
+  uint32 port_src_range = 10; /// When generating new flows, FlowGen modifies the template packet by changing the TCP port, incrementing it by at most port_src_range.
+  uint32 port_dst_range = 11; /// When generating new flows, FlowGen modifies the template packet by changing the TCP dst port, incrementing it by at most port_dst_range.
+}
+
+
+message FlowInfo {
+    string ipv4_src = 1;
+    string ipv4_dst = 2;
+    uint32 ipv4_protocol = 3;
+    uint32 tcp_sport = 4;
+    uint32 tcp_dport = 5;
+}
+
+message FlowTableEntry {
+    uint32 switch_port = 2;
+    string dmac = 3;
+}
