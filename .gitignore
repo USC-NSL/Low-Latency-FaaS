@@ -9,6 +9,8 @@ Low-Latency-FaaS
 # Intermediate files.
 go.sum
 *.pb.go
+*.pb2.py
+*.pb2_grpc.py
 
 # Test binary, built with `go test -c`
 *.test

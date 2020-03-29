@@ -31,8 +31,8 @@ sys.path.append(install_path)
 sys.path.append(os.path.join(install_path, 'tofino'))
 sys.path.append(os.path.join(install_path, 'tofinopd'))
 
-import faas_switch.p4_pd_rpc.faas_switch as pd_rpc
-from faas_switch.p4_pd_rpc.ttypes import *
+import faas_switch_mac.p4_pd_rpc.faas_switch_mac as pd_rpc
+from faas_switch_mac.p4_pd_rpc.ttypes import *
 import pal_rpc.pal as pal_rpc
 from pal_rpc.ttypes import *
 import conn_mgr_pd_rpc.conn_mgr as conn_mgr_rpc
@@ -108,7 +108,7 @@ class ThriftInterface(object):
         self._pal_protocol = TMultiplexedProtocol.TMultiplexedProtocol( \
             self._protocol, 'pal')
         self._switch_p4_protocol = TMultiplexedProtocol.TMultiplexedProtocol( \
-            self._protocol, 'faas_switch')
+            self._protocol, 'faas_switch_mac')
 
         self.client = pd_rpc.Client(self._switch_p4_protocol)
         self.pal_client = pal_rpc.Client(self._pal_protocol)
@@ -121,7 +121,10 @@ class ThriftInterface(object):
         self.sess_hdl = self.conn_mgr.client_init()
 
         # |_dev_ports| records all related switch ports.
-        self._dev_ports = {}
+        self._dev_ports = { \
+            '1/0': kSwitchPortWorker1, \
+            '21/0': kSwitchPortWorker2, \
+            '19/0': kSwitchPortTraffic,}
 
     # Returns the number of entries in the table with |table_name|.
     def dump_table(self, table_name):
@@ -155,6 +158,8 @@ class ThriftInterface(object):
         self._dev_ports[port_channel] = device_port
         if sync_mode not in (0, 1, 2):
             return
+
+        self.delete_dev_port(port_channel)
 
         command_add = 'self.pal_client.pal_port_add'
         eval(command_add) (self.DEVICE, device_port, pal_port_speed_t.BF_SPEED_40G, pal_fec_type_t.BF_FEC_TYP_NONE)
@@ -231,7 +236,7 @@ class SwitchTable(object):
             sport = int(args[3])
             dport = int(args[4])
 
-            match_spec = faas_switch_faas_conn_table_match_spec_t( \
+            match_spec = faas_switch_mac_faas_conn_table_match_spec_t( \
                 ipv4_srcAddr=src, \
                 ipv4_dstAddr=dst, \
                 ipv4_protocol=protocol, \
@@ -242,15 +247,15 @@ class SwitchTable(object):
 
             action_args = args[5:]
             if action == 'faas_conn_table_hit':
-                if len(action_args) != 3:
-                    return None, None, None
+                if len(action_args) != 2:
+                    return None, None
 
                 # switch_port: 16-bit int;
-                # dmac: string;
-                switch_port, dmac = int(action_args[0]), action_args[1]
+                # dest_mac: string;
+                switch_port, dest_mac = int(action_args[0]), action_args[1]
                 # API: (faas_conn_table)_table_add_with_(faas_conn_table_hit)
-                action_spec = faas_switch_faas_conn_table_hit_action_spec_t( \
-                    action_switch_port=switch_port, action_dmac=dmac)
+                action_spec = faas_switch_mac_faas_conn_table_hit_action_spec_t( \
+                    action_switch_port=switch_port, action_dest_mac=dest_mac)
             elif action == 'faas_conn_table_miss':
                 # API: (faas_conn_table)_table_add_with_(faas_conn_table_miss)
                 pass
@@ -300,16 +305,12 @@ class SwitchTable(object):
         return self._table_entries[entry_key]
 
     def add_table_entry(self, entry_key, entry_handler):
-        if self.has_table_entry(entry_key):
-            return
-
-        self._table_entries[entry_key] = entry_handler
+        if entry_key not in self._table_entries:
+            self._table_entries[entry_key] = entry_handler
 
     def del_table_entry(self, entry_key):
-        if not self.has_table_entry(entry_key):
-            return
-
-        del self._table_entries[entry_key]
+        if entry_key in self._table_entries:
+            del self._table_entries[entry_key]
 
 
 # The SwitchController class.
@@ -401,7 +402,7 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
     # This function removes all existing table entries in the switch ASIC.
     def delete_all_table_entries(self):
         for table_name, table in self._tables.items():
-            for entry_key in table._table_entries:
+            for entry_key in table._table_entries.keys():
                 self.delete_table_entry(table._name, entry_key)
 
             assert(len(table._table_entries) == 0)
@@ -418,8 +419,6 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
             print "Error: Duplicated entry (flow)"
             return
 
-        # Takes the spot in table entry list.
-        self._tables[table_name].add_table_entry(entry_key, None)
         # |entry_handler| is an integer that represents the rule index.
         entry_handler = self._interface.insert_exact_match_rule(table_name, action, match_spec, action_spec)
         # Stores the entry in a dict maintained by the table.
@@ -501,9 +500,10 @@ class FaaSSwitchCLI(cmd.Cmd):
             return
 
         table_name = args[0]
-        self._switch_controller.dump_table_entry(table_name)
+        print "Table[%s]: %d" %(table_name, self._switch_controller.dump_table_entry(table_name))
         return
 
+    # insert faas_conn_table faas_conn_table_hit 0.0.0.1 0.0.0.2 6 1 2 192 00:11:22:33:44:55
     def do_insert(self, args):
         args = args.split()
 
