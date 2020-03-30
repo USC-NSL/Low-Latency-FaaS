@@ -1,0 +1,10 @@
+
+syntax = "proto3";
+
+import "protobuf/message.proto";
+
+package bess.pb;
+
+service FaaSControl {
+	rpc UpdateFlow (FlowInfo) returns (FlowTableEntry) {}
+}

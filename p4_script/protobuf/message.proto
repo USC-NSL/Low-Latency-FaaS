@@ -1,0 +1,37 @@
+
+syntax = "proto3";
+
+import "google/protobuf/any.proto";
+
+package bess.pb;
+
+message Error {
+  int32 code = 1;  // 0 for success, errno (>0) for failure
+  string errmsg = 2;
+}
+
+message EmptyArg {}
+
+message CommandRequest {
+  string name = 1;              /// Name of module/port/driver
+  string cmd = 2;               /// Name of command
+  google.protobuf.Any arg = 3;  /// Command argument
+}
+
+message CommandResponse {
+  Error error = 1;
+  google.protobuf.Any data = 2;  /// Command response (see *_msg.proto)
+}
+
+message FlowInfo {
+    string ipv4_src = 1;
+    string ipv4_dst = 2;
+    uint32 ipv4_protocol = 3;
+    uint32 tcp_sport = 4;
+    uint32 tcp_dport = 5;
+}
+
+message FlowTableEntry {
+    uint32 switch_port = 2;
+    string dmac = 3;
+}
