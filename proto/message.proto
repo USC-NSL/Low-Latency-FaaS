@@ -104,3 +104,7 @@ message NFInstanceTableEntry {
     uint32 spi = 2;
     uint32 si = 3;
 }
+
+message InstanceInfo {
+    int32 tid = 1;
+}
