@@ -1,4 +1,3 @@
-
 package cli
 
 import (
@@ -12,12 +11,12 @@ import (
 )
 
 type Executor struct {
-	FaaSController 	*controller.FaaSController
+	FaaSController *controller.FaaSController
 }
 
 func NewExecutor(FaaSController *controller.FaaSController) *Executor {
-	return &Executor {
-		FaaSController : FaaSController,
+	return &Executor{
+		FaaSController: FaaSController,
 	}
 }
 
@@ -68,6 +67,12 @@ func (e *Executor) Execute(s string) {
 		funcType := words[2]
 		if err := e.FaaSController.CreateInstance(nodeName, funcType); err != nil {
 			fmt.Printf("Failed to create %s on %s: %s.\n", funcType, nodeName, err.Error())
+		}
+	} else if words[0] == "connect" && len(words) > 3 {
+		up := words[1]
+		down := words[2]
+		if err := e.FaaSController.ConnectFunctions(up, down); err != nil {
+			fmt.Printf("Failed to connect function [%s] -> [%s]\n", up, down, err.Error())
 		}
 	} else if words[0] == "rm" && len(words) > 3 {
 		nodeName := words[1]

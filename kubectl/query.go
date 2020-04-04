@@ -1,4 +1,3 @@
-
 package kubectl
 
 import (
@@ -48,7 +47,7 @@ func (k8s *KubeController) PrintPods() {
 				} else if containerState.Terminated != nil {
 					status = "Terminating"
 				}
-			}	
+			}
 		}
 		fmt.Printf("| %-35s| %-8s| %-18s|\n", l.Items[i].Name, l.Items[i].Spec.NodeName, status)
 	}
@@ -80,7 +79,7 @@ func (k8s *KubeController) GetPodByLabel(nodeName string, funcType string, hostP
 // Note: No need to call function FetchPods before.
 func (k8s *KubeController) QueryPodByLabel(nodeName string, funcType string, hostPort int) (*corev1.PodList, error) {
 	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, funcType, strconv.Itoa(hostPort))
-	labelsMapping := map[string] string {"app": deploymentName}
+	labelsMapping := map[string]string{"app": deploymentName}
 	set := labels.Set(labelsMapping)
 
 	pods, err := k8s.client.CoreV1().Pods(k8s.namespace).List(metav1.ListOptions{LabelSelector: set.AsSelector().String()})

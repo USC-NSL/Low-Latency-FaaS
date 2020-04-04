@@ -1,4 +1,3 @@
-
 package kubectl
 
 import (
@@ -13,15 +12,16 @@ import (
 
 // Defines all constants.
 const kDockerhubUser string = "165749"
+
 // All kinds of possible NFs.
-var moduleNameMappings = map[string] string {
+var moduleNameMappings = map[string]string{
 	"original": "None",
-	"fc": "FlowCounter",
-	"nat": "NAT",
-	"filter": "Filter",
-	"chacha": "CHACHA",
-	"aesenc": "AESCBCEnc",
-	"aesdec": "AESCBCDec",
+	"fc":       "FlowCounter",
+	"nat":      "NAT",
+	"filter":   "Filter",
+	"chacha":   "CHACHA",
+	"aesenc":   "AESCBCEnc",
+	"aesdec":   "AESCBCDec",
 }
 
 // Create a NF instance with type |funcType| on node |nodeName| at core |workerCore|,
@@ -34,7 +34,7 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, workerCore in
 
 	moduleName, exists := moduleNameMappings[funcType]
 	if !exists {
-		moduleName  = "None"
+		moduleName = "None"
 	}
 
 	deployment := unstructured.Unstructured{
@@ -61,50 +61,50 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, workerCore in
 					"spec": map[string]interface{}{
 						"containers": []map[string]interface{}{
 							{ // Container 0
-								"name":  funcType,
-								"image": kDockerhubUser + "/nf:base",
+								"name":            funcType,
+								"image":           kDockerhubUser + "/nf:base",
 								"imagePullPolicy": "Always",
 								"ports": []map[string]interface{}{
 									{
 										// The ports between [50052, 51051] on the host is used
 										// for instance to receive gRPC requests.
 										"containerPort": 50051,
-										"hostPort": hostPort,
+										"hostPort":      hostPort,
 									},
 								},
 								"command": []string{
 									"/app/main",
-									"--vport=vport_"+coreId,
-									"--worker_core="+coreId,
-									"--module_name="+moduleName,
+									"--vport=vport_" + coreId,
+									"--worker_core=" + coreId,
+									"--module_name=" + moduleName,
 								},
 								"volumeMounts": []map[string]interface{}{
 									{ // volume 0
-										"name": "pcidriver",
+										"name":      "pcidriver",
 										"mountPath": "/sys/bus/pci/drivers",
 									},
 									{ // volume 1
-										"name": "hugepage",
+										"name":      "hugepage",
 										"mountPath": "/sys/kernel/mm/hugepages",
 									},
 									{ // volume 2
-										"name": "huge",
+										"name":      "huge",
 										"mountPath": "/mnt/huge",
 									},
 									{ // volume 3
-										"name": "dev",
+										"name":      "dev",
 										"mountPath": "/dev",
 									},
 									{ // volume 4
-										"name": "numa",
+										"name":      "numa",
 										"mountPath": "/sys/devices/system/node",
 									},
 									{ // volume 5
-										"name": "runtime",
+										"name":      "runtime",
 										"mountPath": "/var/run",
 									},
 									{ // volume 6
-										"name": "port",
+										"name":      "port",
 										"mountPath": "/tmp/sn_vports",
 									},
 								},

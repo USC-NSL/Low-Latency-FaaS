@@ -1,4 +1,3 @@
-
 package controller
 
 import (
@@ -11,28 +10,30 @@ import (
 // The controller of the FaaS system for NFV.
 // |ToRGRPCHandler| are functions to handle gRPC requests to the ToR switch.
 // |workers| are all the worker nodes (i.e. physical or virtual machines) in the system.
+// |instances| maintains all running NF instances.
 type FaaSController struct {
 	grpc.ToRGRPCHandler
-	workers map[string]*Worker
-	//TODO: instances map[string]Instance
+	workers   map[string]*Worker
+	instances map[string]Instance
 }
 
 // Creates a new FaaS controller.
 func NewFaaSController() *FaaSController {
 	c := &FaaSController{
-		workers: make(map[string]*Worker),
+		workers:   make(map[string]*Worker),
+		instances: make(map[string]Instance),
 	}
 
-	// Create worker for cluster nodes.
+	// Initializes all worker nodes when starting a |FaaSController|.
 	// Now core 0 is reserved for the scheduler on the machine.
 	// TODO: Replace hard-code information with reading from k8s configurations.
-	c.createWorker("uscnsl", "204.57.7.3", 10514, 10515, 1,7)
-	c.createWorker("ubuntu", "204.57.7.14", 10514, 10515, 1,7)
+	c.createWorker("uscnsl", "204.57.7.3", 10514, 10515, 1, 7)
+	c.createWorker("ubuntu", "204.57.7.14", 10514, 10515, 1, 7)
 	return c
 }
 
-func(c *FaaSController) createWorker(name string, ip string, vSwitchPort int, schedulerPort int,
-	coreNumOffset int,coreCount int) {
+func (c *FaaSController) createWorker(name string, ip string, vSwitchPort int, schedulerPort int,
+	coreNumOffset int, coreCount int) {
 	if _, exists := c.workers[name]; exists {
 		return
 	}
@@ -59,6 +60,10 @@ func (c *FaaSController) GetWorkerInfoByName(nodeName string) string {
 		return worker.String()
 	}
 	return ""
+}
+
+func (c *FaaSController) ConnectFunctions(upNF string, downNF string) error {
+	return nil
 }
 
 func (c *FaaSController) CreateInstance(nodeName string, funcType string) error {

@@ -1,4 +1,3 @@
-
 package kubectl
 
 import (
@@ -20,13 +19,13 @@ import (
 // |client| is API used for finding resources.
 // |dynamicClient| is API for managing deployments.
 type KubeController struct {
-	namespace string
-	client *kubernetes.Clientset
+	namespace     string
+	client        *kubernetes.Clientset
 	dynamicClient dynamic.Interface
 
 	deploymentList *sync.Map
-	nodeList atomic.Value
-	podList *sync.Map
+	nodeList       atomic.Value
+	podList        *sync.Map
 }
 
 var K8sHandler *KubeController
@@ -79,11 +78,11 @@ func NewKubeController(kubeConfig string, namespace string) (*KubeController, er
 		return nil, err
 	}
 
-	return &KubeController {
-		namespace: namespace,
-		client : client,
-		dynamicClient : dynamicClient,
-		podList: new(sync.Map),
+	return &KubeController{
+		namespace:      namespace,
+		client:         client,
+		dynamicClient:  dynamicClient,
+		podList:        new(sync.Map),
 		deploymentList: new(sync.Map),
 	}, nil
 }

@@ -1,4 +1,3 @@
-
 package cli
 
 import (
@@ -16,6 +15,7 @@ func Complete(in prompt.Document) []prompt.Suggest {
 		{Text: "nodes", Description: "List all nodes."},
 		{Text: "workers", Description: "List all workers."},
 		{Text: "add", Description: "Create a NF instance on specific node."},
+		{Text: "connect [up] [down]", Description: "Connects two logical NFs"},
 		{Text: "rm", Description: "Delete a NF instance on specific node."},
 		{Text: "kubectl", Description: "Control kubernetes clusters."},
 		{Text: "quit", Description: "Clean up and quit the controller."},

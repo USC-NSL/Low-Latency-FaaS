@@ -1,13 +1,13 @@
-
 package controller
 
-import (
-)
+// This is the place to implement resource allocation.
+// First, when a flow arrives, |FaaSController| has to assign
+// a sgroup to serve this flow;
+// Second, NF chains are packed periodically based on real-time
+// monitoring;
 
-// Functions for deciding how to allocate (when a new flow comes) and schedule instances (periodically).
-
-// When a new flow comes to the system, needs to allocating instances to serve it according to its logical graph.
-// Five-tuple (srcIp, scrPort, dstIP, dstPort, protocol) describes the new incoming flow in the system.
+// When a new flow arrives, |FaaSController| picks a sgroup to
+// serve. A flow is identified by its 5-tuple.
 // TODO: Complete the reasons for returning errors.
 func (c *FaaSController) UpdateFlow(srcIP string, srcPort uint32, dstIP string, dstPort uint32, protocol uint32) error {
 	return nil

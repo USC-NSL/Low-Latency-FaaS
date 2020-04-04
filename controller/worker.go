@@ -1,4 +1,3 @@
-
 package controller
 
 import (
@@ -10,37 +9,39 @@ import (
 	utils "github.com/USC-NSL/Low-Latency-FaaS/utils"
 )
 
-// The abstraction of worker node.
-// |VSwitchGRPCHandler| and |SchedulerGRPCHandler| are functions to handle gRPC requests to vSwitch and scheduler on the node.
+// The abstraction of worker nodes.
+// |VSwitchGRPCHandler| and |SchedulerGRPCHandler| are functions
+// to handle gRPC requests to vSwitch and scheduler on the node.
 // |name| is the name of the node in kubernetes.
-// |ip| is the ip address of the node.
-// |vSwitchPort| is the port for vSwitch to establish gRCP server on the node.
-// |schedulerPort| is the port of scheduler to establish gRCP server on the node.
+// |ip| is the ip address of the worker node.
+// |vSwitchPort| is BESS gRPC port on host (e.g. FlowGen).
+// |schedulerPort| is Cooperativesched gRCP port on host.
 // |cores| is the abstraction of cores on the node.
-// |coreNumOffset| is designed for mapping from cores array to real physical core number.
-//                 Specifically, coreNumOffset + index (in cores array) = real core number.
-// |freeInstances| are the NF instances not assigned to any core yet (but still in memory).
-// |instancePortPool| manages the ports taken by instances on the node to avoid port conflicts.
+// |coreNumOffset| is for mapping from cores array to real physical core number.
+// |coreNumOffset| + index (in cores array) = real core number.
+// |freeInstances| are NF instances not pinned to any core yet (but in memory).
+// |instancePortPool| manages ports taken by instances on the node.
+// This is to prevent conflicts on host TCP ports.
 type Worker struct {
 	grpc.VSwitchGRPCHandler
 	grpc.SchedulerGRPCHandler
-	name string
-	ip string
-	vSwitchPort int
-	schedulerPort int
-	cores []*Core
-	coreNumOffset int
-	freeInstances []*Instance
+	name             string
+	ip               string
+	vSwitchPort      int
+	schedulerPort    int
+	cores            []*Core
+	coreNumOffset    int
+	freeInstances    []*Instance
 	instancePortPool *utils.IndexPool
 }
 
 func newWorker(name string, ip string, vSwitchport int, schedulerPort, coreNumOffset int, coreNum int) *Worker {
 	worker := Worker{
-		name: name,
-		ip: ip,
-		vSwitchPort: vSwitchport,
+		name:          name,
+		ip:            ip,
+		vSwitchPort:   vSwitchport,
 		schedulerPort: schedulerPort,
-		cores: make([]*Core, coreNum),
+		cores:         make([]*Core, coreNum),
 		coreNumOffset: coreNumOffset,
 		freeInstances: make([]*Instance, 0),
 		// Ports taken by instances are between [50052, 51051]
@@ -56,7 +57,7 @@ func newWorker(name string, ip string, vSwitchport int, schedulerPort, coreNumOf
 func (w *Worker) String() string {
 	info := fmt.Sprintf("Worker [%s] at %s \n Core:", w.name, w.ip)
 	for idx, core := range w.cores {
-		info += fmt.Sprintf("\n  %d %s", idx + w.coreNumOffset, core)
+		info += fmt.Sprintf("\n  %d %s", idx+w.coreNumOffset, core)
 	}
 	info += "\n Free instances:"
 	for _, instance := range w.freeInstances {
@@ -98,4 +99,3 @@ func (w *Worker) destroyInstance(funcType string, hostPort int) error {
 
 	return errors.New(fmt.Sprintf("could not find %s(%d) in %s", funcType, hostPort, w.name))
 }
-
