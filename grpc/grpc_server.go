@@ -7,6 +7,7 @@ import (
 	"net"
 
 	pb "github.com/USC-NSL/Low-Latency-FaaS/proto"
+
 	grpc "google.golang.org/grpc"
 )
 
@@ -46,4 +47,9 @@ func (s *GRPCServer) UpdateFlow(context context.Context, flowInfo *pb.FlowInfo) 
 	return response, nil
 }
 
-// TODO: Add the service for receiving information from instances (e.g., when an instance is created or updates the statistics).
+// When a new instance sets up, it will inform the controller about its TID,
+// which will be used by the scheduler on the machine to schedule the instance.
+func (s *GRPCServer) InstanceSetUp(context context.Context, instanceInfo *pb.InstanceInfo) (*pb.Error, error) {
+	fmt.Printf("Called by %d.\n", instanceInfo.GetTid())
+	return &pb.Error{Code: 0}, nil
+}

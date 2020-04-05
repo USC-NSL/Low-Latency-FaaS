@@ -11,6 +11,7 @@ service FaaSControl {
 	// so that the controller can set up new instances to serve the flow.
 	rpc UpdateFlow (FlowInfo) returns (FlowTableEntry) {}
 
-	// TODO: When a new instance sets up, it will inform the controller about its TID,
+	// When a new instance sets up, it will inform the controller about its TID,
 	// which will be used by the scheduler on the machine to schedule the instance.
+	rpc InstanceSetUp (InstanceInfo) returns (Error) {}
 }
