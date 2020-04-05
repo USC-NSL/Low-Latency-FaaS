@@ -27,7 +27,7 @@ func (c *FaaSController) UpdateFlow(srcIP string, srcPort uint32, dstIP string, 
 	return nil
 }
 
-// Give a flow five-tuple information, find out its logical sGroups(sub-chains) divisions.
+// Give a flow five-tuple information, find out its logical chain divisions.
 func (c *FaaSController) sGroupsDivision(srcIP string, srcPort uint32, dstIP string, dstPort uint32,
 	protocol uint32) [][]string {
 	return [][]string { {"a", "b", "c"} }

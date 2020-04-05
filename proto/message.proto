@@ -108,3 +108,28 @@ message NFInstanceTableEntry {
 message InstanceInfo {
     int32 tid = 1;
 }
+
+message Status {
+    int32 error = 1;
+    string message = 2;
+}
+
+message SetUpThreadArg {
+    int32 tid = 1;
+}
+
+message AttachChainArg {
+    repeated int32 chain = 1;
+    int32 core = 2;
+}
+
+message MigrateChainArg {
+    repeated int32 chain = 1;
+    int32 core_from = 2;
+    int32 core_to = 3;
+}
+
+message DetachChainArg {
+    repeated int32 chain = 1;
+    int32 core = 2;
+}
