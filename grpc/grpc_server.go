@@ -6,6 +6,7 @@ import (
 	"net"
 
 	pb "github.com/USC-NSL/Low-Latency-FaaS/proto"
+
 	grpc "google.golang.org/grpc"
 )
 
@@ -46,10 +47,16 @@ func (s *GRPCServer) UpdateFlow(context context.Context, flowInfo *pb.FlowInfo) 
 	return response, nil
 }
 
-// This function is called when a sgroup updates its traffic
-// statistics. |s.FaaSController| manages all sgroups, and thus
-// is notified and updated.
+// This function is called when a sgroup updates traffic statistics.
+// |s.FaaSController| manages all sgroups, and is notified and updated.
 func (s *GRPCServer) InstanceUpdateStats(context context.Context, stats *pb.SgroupStats) (*pb.EmptyArg, error) {
 	respose := &pb.EmptyArg{}
 	return respose, nil
+}
+
+// When a new instance sets up, it will inform the controller about its TID,
+// which will be used by the scheduler on the machine to schedule the instance.
+func (s *GRPCServer) InstanceSetUp(context context.Context, instanceInfo *pb.InstanceInfo) (*pb.Error, error) {
+	fmt.Printf("Called by %d.\n", instanceInfo.GetTid())
+	return &pb.Error{Code: 0}, nil
 }

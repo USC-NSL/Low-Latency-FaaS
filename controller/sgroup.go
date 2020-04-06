@@ -21,17 +21,18 @@ type SGroup struct {
 	coreId           int
 }
 
-func newSGroup() *SGroup {
+func newSGroup(worker *Worker, coreId int, instances []*Instance) *SGroup {
 	sGroup := SGroup{
-		instances:        make([]*Instance, 0),
+		instances:        make([]*Instance, len(instances)),
 		incQueueLength:   0,
 		incQueueCapacity: 0,
 		outQueueLength:   0,
 		outQueueCapacity: 0,
 		traffic:          0,
-		worker:           nil,
-		coreId:           0,
+		worker:           worker,
+		coreId:           coreId,
 	}
+	copy(sGroup.instances, instances)
 	return &sGroup
 }
 

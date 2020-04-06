@@ -31,6 +31,8 @@ func NewExecutor(FaaSController *controller.FaaSController) *Executor {
 //    - rm |nodeName| |funcType|
 // 5. Destroy a deployment in kubernetes by its name:
 //    - kubectl rm |deploymentName|
+// 6. Simulate a flow comeing in the system:
+//    - flow |srcIp| |srcPort| |dstIp| |dstPort| |protocol|
 //---------------------------------------------------------
 func (e *Executor) Execute(s string) {
 	s = strings.TrimSpace(s)
@@ -100,6 +102,15 @@ func (e *Executor) Execute(s string) {
 			} else {
 				fmt.Printf("Remove deployment %s successfully!\n", deploymentName)
 			}
+		}
+	} else if words[0] == "flow" && len(words) > 5 {
+		srcIp := words[1]
+		srcPort, _ := strconv.Atoi(words[2])
+		dstIp := words[3]
+		dstPort, _ := strconv.Atoi(words[4])
+		protocol, _ := strconv.Atoi(words[5])
+		if err := e.FaaSController.UpdateFlow(srcIp, uint32(srcPort), dstIp, uint32(dstPort), uint32(protocol)); err != nil {
+			fmt.Printf("Failed to update flow: %s!\n", err.Error())
 		}
 	}
 }

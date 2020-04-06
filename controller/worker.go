@@ -99,3 +99,34 @@ func (w *Worker) destroyInstance(funcType string, hostPort int) error {
 
 	return errors.New(fmt.Sprintf("could not find %s(%d) in %s", funcType, hostPort, w.name))
 }
+
+// Find existing instance of NF |funcType|.
+// If not found, return -1.
+func (w *Worker) findAvailableInstance(funcType string) int {
+	for idx, instance := range w.freeInstances {
+		if instance.funcType == funcType {
+			return idx
+		}
+	}
+	return -1
+}
+
+// Scheduling a new |sGroup| on core |coreId|.
+func (w *Worker) scheduleSGroup(sGroup []string, coreId int) error {
+	instances := make([]*Instance, 0)
+	for _, funcType := range sGroup {
+		idx := w.findAvailableInstance(funcType)
+		if idx == -1 {
+			for _, instance := range instances {
+				w.freeInstances = append(w.freeInstances, instance)
+			}
+			return errors.New(fmt.Sprintf("cannot find available instance for %s at node %s", funcType, w.name))
+		}
+		instances = append(instances, w.freeInstances[idx])
+		w.freeInstances = append(w.freeInstances[:idx], w.freeInstances[idx+1:]...)
+	}
+
+	w.cores[coreId].sGroups = append(w.cores[coreId].sGroups, newSGroup(w, coreId, instances))
+	// TODO: Send gRPC to inform instances and scheduler.
+	return nil
+}

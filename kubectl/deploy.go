@@ -36,6 +36,7 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, workerCore in
 	if !exists {
 		moduleName = "None"
 	}
+	fmt.Sprintf("%s, %s!\n", coreId, moduleName)
 
 	deployment := unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -59,10 +60,21 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, workerCore in
 					},
 
 					"spec": map[string]interface{}{
+						"hostPID": true,
 						"containers": []map[string]interface{}{
 							{ // Container 0
+								"securityContext": map[string]interface{}{
+									"privileged": true,
+									"runAsUser":  0,
+								},
+								"resources": map[string]interface{}{
+									"limits": map[string]interface{}{
+										"memory":        "1Gi",
+										"hugepages-2Mi": "1Gi",
+									},
+								},
 								"name":            funcType,
-								"image":           kDockerhubUser + "/nf:base",
+								"image":           kDockerhubUser + "/nf:latest",
 								"imagePullPolicy": "Always",
 								"ports": []map[string]interface{}{
 									{
@@ -73,39 +85,54 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, workerCore in
 									},
 								},
 								"command": []string{
+									//"sleep", "1500",
 									"/app/main",
-									"--vport=vport_" + coreId,
-									"--worker_core=" + coreId,
-									"--module_name=" + moduleName,
+									"--module=ACL",
+									"--ingress=true",
+									"--egress=true",
+									"--isolation_key=x",
+									"--device=5e:02.0",
 								},
 								"volumeMounts": []map[string]interface{}{
 									{ // volume 0
 										"name":      "pcidriver",
 										"mountPath": "/sys/bus/pci/drivers",
+										"readOnly":  false,
 									},
 									{ // volume 1
 										"name":      "hugepage",
 										"mountPath": "/sys/kernel/mm/hugepages",
+										"readOnly":  false,
 									},
 									{ // volume 2
 										"name":      "huge",
 										"mountPath": "/mnt/huge",
+										"readOnly":  false,
 									},
 									{ // volume 3
 										"name":      "dev",
 										"mountPath": "/dev",
+										"readOnly":  false,
 									},
 									{ // volume 4
 										"name":      "numa",
 										"mountPath": "/sys/devices/system/node",
+										"readOnly":  false,
 									},
 									{ // volume 5
 										"name":      "runtime",
 										"mountPath": "/var/run",
+										"readOnly":  false,
 									},
 									{ // volume 6
 										"name":      "port",
 										"mountPath": "/tmp/sn_vports",
+										"readOnly":  false,
+									},
+									{ // volume 7
+										"name":      "pcidevice",
+										"mountPath": "/sys/devices",
+										"readOnly":  false,
 									},
 								},
 							},
@@ -152,6 +179,12 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, workerCore in
 								"name": "port",
 								"hostPath": map[string]interface{}{
 									"path": "/tmp/sn_vports",
+								},
+							},
+							{ // volume 7
+								"name": "pcidevice",
+								"hostPath": map[string]interface{}{
+									"path": "/sys/devices",
 								},
 							},
 						}, // Ends volumes
