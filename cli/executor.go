@@ -66,15 +66,16 @@ func (e *Executor) Execute(s string) {
 		}
 	} else if words[0] == "add" && len(words) > 2 {
 		nodeName := words[1]
+		// TODO: Deal with a list of funcTypes
 		funcType := words[2]
-		if err := e.FaaSController.CreateInstance(nodeName, funcType); err != nil {
+		if err := e.FaaSController.CreateSGroup(nodeName, []string{funcType}); err != nil {
 			fmt.Printf("Failed to create %s on %s: %s.\n", funcType, nodeName, err.Error())
 		}
 	} else if words[0] == "deploy" && len(words) >= 3 {
 		user := words[1]
 		funcType := words[2]
 		if err := e.FaaSController.AddNF(user, funcType); err != nil {
-			fmt.Printf("Failed to add function [%s]\n", funcType, err.Error())
+			fmt.Printf("Failed to add SGroup [%s]: %s.\n", funcType, err.Error())
 		}
 	} else if words[0] == "connect" && len(words) >= 4 {
 		user := words[1]
@@ -88,10 +89,9 @@ func (e *Executor) Execute(s string) {
 		e.FaaSController.ShowNFDAGs(user)
 	} else if words[0] == "rm" && len(words) > 3 {
 		nodeName := words[1]
-		funcType := words[2]
-		port, _ := strconv.Atoi(words[3])
-		if err := e.FaaSController.DestroyInstance(nodeName, funcType, port); err != nil {
-			fmt.Printf("Failed to delete %s on %s: %s.\n", funcType, nodeName, err.Error())
+		groupId, _ := strconv.Atoi(words[2])
+		if err := e.FaaSController.DestroySGroup(nodeName, groupId); err != nil {
+			fmt.Printf("Failed to delete sGroup %d on %s: %s.\n", groupId, nodeName, err.Error())
 		}
 	} else if words[0] == "kubectl" && len(words) > 2 {
 		command := words[1]

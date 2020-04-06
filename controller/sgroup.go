@@ -10,6 +10,8 @@ import (
 // |traffic| describes the observed traffic in the sGroup.
 // |worker| is the worker node that the sGroup assigned to.
 // |coreId| is the core that the sGroup scheduled to.
+// |groupId| is the unique identifier of the sGroup on a worker. Technically, it is equal to the tid of its first NF instance.
+// |tids| is an array of the tid of every instance in it.
 type SGroup struct {
 	instances        []*Instance
 	incQueueLength   int
@@ -19,6 +21,8 @@ type SGroup struct {
 	traffic          int
 	worker           *Worker
 	coreId           int
+	groupId int
+	tids []int32
 }
 
 func newSGroup(worker *Worker, coreId int, instances []*Instance) *SGroup {
@@ -31,8 +35,13 @@ func newSGroup(worker *Worker, coreId int, instances []*Instance) *SGroup {
 		traffic:          0,
 		worker:           worker,
 		coreId:           coreId,
+		groupId: instances[0].tid,
+		tids: make([]int32, len(instances)),
 	}
 	copy(sGroup.instances, instances)
+	for i, instance := range instances {
+		sGroup.tids[i] = int32(instance.tid)
+	}
 	return &sGroup
 }
 
@@ -46,4 +55,16 @@ func (s *SGroup) String() string {
 		}
 	}
 	return info
+}
+
+func (s *SGroup) match(funcTypes []string) bool {
+	if len(s.instances) != len(funcTypes) {
+		return false
+	}
+	for i, instance := range s.instances {
+		if instance.funcType != funcTypes[i] {
+			return false
+		}
+	}
+	return true
 }

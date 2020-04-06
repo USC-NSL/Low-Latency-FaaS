@@ -31,19 +31,19 @@ type Worker struct {
 	schedulerPort    int
 	cores            []*Core
 	coreNumOffset    int
-	freeInstances    []*Instance
+	freeSGroups    []*SGroup
 	instancePortPool *utils.IndexPool
 }
 
-func newWorker(name string, ip string, vSwitchport int, schedulerPort, coreNumOffset int, coreNum int) *Worker {
+func newWorker(name string, ip string, vSwitchPort int, schedulerPort, coreNumOffset int, coreNum int) *Worker {
 	worker := Worker{
 		name:          name,
 		ip:            ip,
-		vSwitchPort:   vSwitchport,
+		vSwitchPort:   vSwitchPort,
 		schedulerPort: schedulerPort,
 		cores:         make([]*Core, coreNum),
 		coreNumOffset: coreNumOffset,
-		freeInstances: make([]*Instance, 0),
+		freeSGroups: make([]*SGroup, 0),
 		// Ports taken by instances are between [50052, 51051]
 		instancePortPool: utils.NewIndexPool(50052, 1000),
 	}
@@ -60,51 +60,86 @@ func (w *Worker) String() string {
 		info += fmt.Sprintf("\n  %d %s", idx+w.coreNumOffset, core)
 	}
 	info += "\n Free instances:"
-	for _, instance := range w.freeInstances {
+	for _, instance := range w.freeSGroups {
 		info += fmt.Sprintf("\n  %s", instance)
 	}
 	return info + "\n"
 }
 
-// Create an NF instance with type |funcType|. By default, the instance will run on core 0.
-func (w *Worker) createInstance(funcType string) error {
+// Create an NF instance with type |funcType|. Waiting until receiving the tid from the instance.
+// Note: Call it only when creating a sGroups.
+func (w *Worker) createInstance(funcType string) (*Instance, error) {
 	port := w.instancePortPool.GetNextAvailable()
 	// By default, the instance will run on core 0.
-	_, err := kubectl.K8sHandler.CreateDeployment(w.name, 0, funcType, port)
-	if err != nil {
+
+	if _, err := kubectl.K8sHandler.CreateDeployment(w.name, 0, funcType, port); err != nil {
 		// Fail to create a new instance.
 		w.instancePortPool.Free(port)
-	} else {
-		// Success
-		instance := newInstance(funcType, w.ip, port)
-		w.freeInstances = append(w.freeInstances, instance)
+		return nil, err
+	}
+
+	// Succeed
+	instance := newInstance(funcType, w.ip, port)
+	instance.waitTid()
+	return instance, nil
+}
+
+// Search and destroy an NF |instance|.
+// Note: Call it only when freeing a sGroups.
+func (w *Worker) destroyInstance(instance *Instance) error {
+	err := kubectl.K8sHandler.DeleteDeployment(w.name, instance.funcType, instance.port)
+	if err == nil {
+		// Succeed
+		w.instancePortPool.Free(instance.port)
 	}
 	return err
 }
 
-// Search and destroy an NF instance with type |funcType| and port |hostPort|.
-// Note: The port is a kind of unique id for each instance on the node).
-func (w *Worker) destroyInstance(funcType string, hostPort int) error {
-	for i, instance := range w.freeInstances {
-		if instance.port == hostPort {
-			err := kubectl.K8sHandler.DeleteDeployment(w.name, funcType, hostPort)
-			if err == nil {
-				// Success
-				w.instancePortPool.Free(hostPort)
-				w.freeInstances = append(w.freeInstances[:i], w.freeInstances[i+1:]...)
+// Create a |sGroup| by an array of NF types and store it in freeSGroups.
+// To avoid busy waiting, call this function in go routine.
+// Also send gRPC request to inform the scheduler.
+func (w *Worker) createSGroup(funcTypes []string) error {
+	instances := make([]*Instance, 0)
+	for _, funcType := range funcTypes {
+		newInstance, err := w.createInstance(funcType)
+		if err != nil {
+			// Fail to create a new instance.
+			for _, instance := range instances {
+				w.destroyInstance(instance)
 			}
 			return err
 		}
+		instances = append(instances, newInstance)
 	}
+	// Send gRPC request to inform the scheduler.
+	for _, instance := range instances {
+		w.SetUpThread(instance.tid)
+	}
+	sGroup := newSGroup(w, 0, instances)
+	w.freeSGroups = append(w.freeSGroups, sGroup)
+	return nil
+}
 
-	return errors.New(fmt.Sprintf("could not find %s(%d) in %s", funcType, hostPort, w.name))
+// Search and destroy a free sGroup by its groupId (equal to the tid of its first NF instance).
+// Also free all instances within it.
+func (w *Worker) destroySGroup(groupId int) error {
+	for i, sGroup := range w.freeSGroups {
+		if sGroup.groupId == groupId {
+			for _, instance := range sGroup.instances {
+				w.destroyInstance(instance)
+			}
+			w.freeSGroups = append(w.freeSGroups[:i], w.freeSGroups[i+1:]...)
+			return nil
+		}
+	}
+	return errors.New(fmt.Sprintf("could not find groupId %d in %s", groupId, w.name))
 }
 
 // Find existing instance of NF |funcType|.
 // If not found, return -1.
-func (w *Worker) findAvailableInstance(funcType string) int {
-	for idx, instance := range w.freeInstances {
-		if instance.funcType == funcType {
+func (w *Worker) findFreeSGroup(funcTypes []string) int {
+	for idx, sGroup := range w.freeSGroups {
+		if sGroup.match(funcTypes) {
 			return idx
 		}
 	}
@@ -112,21 +147,16 @@ func (w *Worker) findAvailableInstance(funcType string) int {
 }
 
 // Scheduling a new |sGroup| on core |coreId|.
-func (w *Worker) scheduleSGroup(sGroup []string, coreId int) error {
-	instances := make([]*Instance, 0)
-	for _, funcType := range sGroup {
-		idx := w.findAvailableInstance(funcType)
-		if idx == -1 {
-			for _, instance := range instances {
-				w.freeInstances = append(w.freeInstances, instance)
-			}
-			return errors.New(fmt.Sprintf("cannot find available instance for %s at node %s", funcType, w.name))
-		}
-		instances = append(instances, w.freeInstances[idx])
-		w.freeInstances = append(w.freeInstances[:idx], w.freeInstances[idx+1:]...)
+func (w *Worker) scheduleSGroup(funcTypes []string, coreId int) error {
+	idx := w.findFreeSGroup(funcTypes)
+	if idx == -1 {
+		return errors.New(fmt.Sprintf("cannot find free sGroup for %s at node %s", funcTypes, w.name))
 	}
-
-	w.cores[coreId].sGroups = append(w.cores[coreId].sGroups, newSGroup(w, coreId, instances))
-	// TODO: Send gRPC to inform instances and scheduler.
+	// Move it from freeSGroups to a core.
+	sGroup := w.freeSGroups[idx]
+	w.freeSGroups = append(w.freeSGroups[:idx], w.freeSGroups[idx+1:]...)
+	w.cores[coreId].sGroups = append(w.cores[coreId].sGroups, sGroup)
+	// Send gRPC to inform scheduler.
+	w.AttachChain(sGroup.tids, coreId)
 	return nil
 }

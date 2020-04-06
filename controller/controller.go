@@ -107,21 +107,21 @@ func (c *FaaSController) ShowNFDAGs(targetUser string) {
 	}
 }
 
-func (c *FaaSController) CreateInstance(nodeName string, funcType string) error {
+func (c *FaaSController) CreateSGroup(nodeName string, funcTypes []string) error {
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
 
 	// TODO: check funcType here.
-	return c.workers[nodeName].createInstance(funcType)
+	return c.workers[nodeName].createSGroup(funcTypes)
 }
 
-func (c *FaaSController) DestroyInstance(nodeName string, funcType string, port int) error {
+func (c *FaaSController) DestroySGroup(nodeName string, groupId int) error {
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
 
-	return c.workers[nodeName].destroyInstance(funcType, port)
+	return c.workers[nodeName].destroySGroup(groupId)
 }
 
 func (c *FaaSController) CleanUpWorker(nodeName string) error {
@@ -129,9 +129,9 @@ func (c *FaaSController) CleanUpWorker(nodeName string) error {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
 	worker := c.workers[nodeName]
-	for len(worker.freeInstances) > 0 {
-		instance := worker.freeInstances[0]
-		if err := worker.destroyInstance(instance.funcType, instance.port); err != nil {
+	for len(worker.freeSGroups) > 0 {
+		sGroup := worker.freeSGroups[0]
+		if err := worker.destroySGroup(sGroup.groupId); err != nil {
 			return err
 		}
 	}
