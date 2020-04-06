@@ -66,6 +66,9 @@ func (c *FaaSController) GetWorkerInfoByName(nodeName string) string {
 	return ""
 }
 
+// Adds an NF |funcType| to a |user|'s DAG. If |user| does not
+// exist, first creates a new |user| in |FaaSController|.
+// |user| is a string that represents the user's ID.
 func (c *FaaSController) AddNF(user string, funcType string) error {
 	if _, exists := c.dags[user]; !exists {
 		c.dags[user] = newDAG()
@@ -74,6 +77,8 @@ func (c *FaaSController) AddNF(user string, funcType string) error {
 	return c.dags[user].addNF(funcType)
 }
 
+// Connects two NFs |upNF| -> |downNF| to a |user|'s DAG.
+// |user| is a string that represents the user's ID.
 func (c *FaaSController) ConnectNFs(user string, upNF string, downNF string) error {
 	if _, exists := c.dags[user]; !exists {
 		c.dags[user] = newDAG()
@@ -82,6 +87,7 @@ func (c *FaaSController) ConnectNFs(user string, upNF string, downNF string) err
 	return c.dags[user].connectNFs(upNF, downNF)
 }
 
+// Prints all DAGs managed by |FaaSController|.
 func (c *FaaSController) ShowNFDAGs(targetUser string) {
 	for user, dag := range c.dags {
 		if user == targetUser || targetUser == "all" {
