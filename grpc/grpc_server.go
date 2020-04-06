@@ -1,4 +1,3 @@
-
 package grpc
 
 import (
@@ -21,7 +20,7 @@ type Controller interface {
 }
 
 type GRPCServer struct {
-	FaaSController		Controller
+	FaaSController Controller
 }
 
 func NewGRPCServer(c Controller) {
@@ -39,12 +38,20 @@ func NewGRPCServer(c Controller) {
 	}
 }
 
-// Invoked when a new flow comes to system. Will forward to the system controller (with updateFlow method).
+// This function is called when a new flow arrives at the ToR switch.
+// The flow is updated to |s.FaaSController|, which then selects
+// the target NF chains to process this flow.
 func (s *GRPCServer) UpdateFlow(context context.Context, flowInfo *pb.FlowInfo) (*pb.FlowTableEntry, error) {
 	s.FaaSController.UpdateFlow(flowInfo.Ipv4Src, flowInfo.TcpSport, flowInfo.Ipv4Dst, flowInfo.TcpDport, flowInfo.Ipv4Protocol)
-	response := &pb.FlowTableEntry{
-	}
+	response := &pb.FlowTableEntry{}
 	return response, nil
+}
+
+// This function is called when a sgroup updates traffic statistics.
+// |s.FaaSController| manages all sgroups, and is notified and updated.
+func (s *GRPCServer) InstanceUpdateStats(context context.Context, stats *pb.SgroupStats) (*pb.EmptyArg, error) {
+	respose := &pb.EmptyArg{}
+	return respose, nil
 }
 
 // When a new instance sets up, it will inform the controller about its TID,

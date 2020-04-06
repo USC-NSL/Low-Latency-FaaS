@@ -1,4 +1,3 @@
-
 package kubectl
 
 import (
@@ -13,15 +12,16 @@ import (
 
 // Defines all constants.
 const kDockerhubUser string = "165749"
+
 // All kinds of possible NFs.
-var moduleNameMappings = map[string] string {
+var moduleNameMappings = map[string]string{
 	"original": "None",
-	"fc": "FlowCounter",
-	"nat": "NAT",
-	"filter": "Filter",
-	"chacha": "CHACHA",
-	"aesenc": "AESCBCEnc",
-	"aesdec": "AESCBCDec",
+	"fc":       "FlowCounter",
+	"nat":      "NAT",
+	"filter":   "Filter",
+	"chacha":   "CHACHA",
+	"aesenc":   "AESCBCEnc",
+	"aesdec":   "AESCBCDec",
 }
 
 // Create a NF instance with type |funcType| on node |nodeName| at core |workerCore|,
@@ -34,7 +34,7 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, workerCore in
 
 	moduleName, exists := moduleNameMappings[funcType]
 	if !exists {
-		moduleName  = "None"
+		moduleName = "None"
 	}
 	fmt.Sprintf("%s, %s!\n", coreId, moduleName)
 
@@ -65,23 +65,23 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, workerCore in
 							{ // Container 0
 								"securityContext": map[string]interface{}{
 									"privileged": true,
-									"runAsUser": 0,
+									"runAsUser":  0,
 								},
 								"resources": map[string]interface{}{
 									"limits": map[string]interface{}{
-										"memory": "1Gi",
+										"memory":        "1Gi",
 										"hugepages-2Mi": "1Gi",
 									},
 								},
-								"name":  funcType,
-								"image": kDockerhubUser + "/nf:latest",
+								"name":            funcType,
+								"image":           kDockerhubUser + "/nf:latest",
 								"imagePullPolicy": "Always",
 								"ports": []map[string]interface{}{
 									{
 										// The ports between [50052, 51051] on the host is used
 										// for instance to receive gRPC requests.
 										"containerPort": 50051,
-										"hostPort": hostPort,
+										"hostPort":      hostPort,
 									},
 								},
 								"command": []string{
@@ -95,44 +95,44 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, workerCore in
 								},
 								"volumeMounts": []map[string]interface{}{
 									{ // volume 0
-										"name": "pcidriver",
+										"name":      "pcidriver",
 										"mountPath": "/sys/bus/pci/drivers",
-										"readOnly": false,
+										"readOnly":  false,
 									},
 									{ // volume 1
-										"name": "hugepage",
+										"name":      "hugepage",
 										"mountPath": "/sys/kernel/mm/hugepages",
-										"readOnly": false,
+										"readOnly":  false,
 									},
 									{ // volume 2
-										"name": "huge",
+										"name":      "huge",
 										"mountPath": "/mnt/huge",
-										"readOnly": false,
+										"readOnly":  false,
 									},
 									{ // volume 3
-										"name": "dev",
+										"name":      "dev",
 										"mountPath": "/dev",
-										"readOnly": false,
+										"readOnly":  false,
 									},
 									{ // volume 4
-										"name": "numa",
+										"name":      "numa",
 										"mountPath": "/sys/devices/system/node",
-										"readOnly": false,
+										"readOnly":  false,
 									},
 									{ // volume 5
-										"name": "runtime",
+										"name":      "runtime",
 										"mountPath": "/var/run",
-										"readOnly": false,
+										"readOnly":  false,
 									},
 									{ // volume 6
-										"name": "port",
+										"name":      "port",
 										"mountPath": "/tmp/sn_vports",
-										"readOnly": false,
+										"readOnly":  false,
 									},
 									{ // volume 7
-										"name": "pcidevice",
+										"name":      "pcidevice",
 										"mountPath": "/sys/devices",
-										"readOnly": false,
+										"readOnly":  false,
 									},
 								},
 							},

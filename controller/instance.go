@@ -1,4 +1,3 @@
-
 package controller
 
 import (
@@ -16,15 +15,15 @@ import (
 type Instance struct {
 	grpc.InstanceGRPCHandler
 	funcType string
-	port int
-	address string
+	port     int
+	address  string
 }
 
 func newInstance(funcType string, hostIp string, port int) *Instance {
 	instance := Instance{
 		funcType: funcType,
-		port: port,
-		address: hostIp + ":" + strconv.Itoa(port),
+		port:     port,
+		address:  hostIp + ":" + strconv.Itoa(port),
 	}
 	return &instance
 }

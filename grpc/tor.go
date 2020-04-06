@@ -1,4 +1,3 @@
-
 package grpc
 
 // The handler for sending gRPC requests to a ToR switch.

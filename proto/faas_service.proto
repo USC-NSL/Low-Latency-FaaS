@@ -13,5 +13,10 @@ service FaaSControl {
 
 	// When a new instance sets up, it will inform the controller about its TID,
 	// which will be used by the scheduler on the machine to schedule the instance.
+
+    // A running instance updates its real-time statistics, such as
+    // the queue length, and the observed packet rate.
+    rpc InstanceUpdateStats(SgroupStats) returns (EmptyArg) {}
+
 	rpc InstanceSetUp (InstanceInfo) returns (Error) {}
 }

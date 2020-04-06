@@ -1,14 +1,18 @@
-
 package controller
 
 import (
 	"strconv"
 )
 
-// Functions for deciding how to allocate (when a new flow comes) and schedule instances (periodically).
+// This is the place to implement resource allocation.
+// First, when a flow arrives, |FaaSController| has to assign
+// a sgroup to serve this flow;
+// Second, NF chains are packed periodically based on real-time
+// monitoring;
 
-// When a new flow comes to the system, needs to allocating instances to serve it according to its logical graph.
-// Five-tuple (srcIp, scrPort, dstIP, dstPort, protocol) describes the new incoming flow in the system.
+// When a new flow arrives, |FaaSController| picks a sgroup to
+// serve. A flow is identified by its 5-tuple.
+// TODO: Complete the reasons for returning errors.
 func (c *FaaSController) UpdateFlow(srcIP string, srcPort uint32, dstIP string, dstPort uint32, protocol uint32) error {
 	// For a new flow, find out its logical sGroups(sub-chains) divisions.
 	sGroups := c.sGroupsDivision(srcIP, srcPort, dstIP, dstPort, protocol)
@@ -27,10 +31,11 @@ func (c *FaaSController) UpdateFlow(srcIP string, srcPort uint32, dstIP string, 
 	return nil
 }
 
-// Give a flow five-tuple information, find out its logical chain divisions.
+// Give a flow five-tuple information, find out its logical
+// chain divisions.
 func (c *FaaSController) sGroupsDivision(srcIP string, srcPort uint32, dstIP string, dstPort uint32,
 	protocol uint32) [][]string {
-	return [][]string { {"a", "b", "c"} }
+	return [][]string{{"a", "b", "c"}}
 }
 
 // For a group of |sGroups|, schedule them in the system.
@@ -46,7 +51,7 @@ func (c *FaaSController) schedule(sGroups [][]string) [][3]string {
 			nodeName, coreIdx = c.allocateNewSGroup(sGroup)
 			action = "allocate"
 		}
-		placement[i] = [3]string {nodeName, strconv.Itoa(coreIdx), action}
+		placement[i] = [3]string{nodeName, strconv.Itoa(coreIdx), action}
 	}
 	return placement
 }

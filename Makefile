@@ -8,9 +8,12 @@ CONTROLLER_DIR = ./controller
 CONTROLLER = $(wildcard $(CONTROLLER_DIR)/*.go)
 PROTOS_DIR = ./proto
 
-.PHONY : all clean
+.PHONY : all clean fmt
 
 all : protos $(PROD)
+
+fmt :
+	@gofmt -l -s -w .
 
 protos : $(PROTOS_DIR)
 	protoc -I $(PROTOS_DIR) --go_out=plugins=grpc:$(PROTOS_DIR) $(PROTOS_DIR)/*.proto

@@ -1,4 +1,3 @@
-
 package grpc
 
 import (
@@ -13,7 +12,8 @@ type GRPCClient struct {
 	grpcConn *grpc.ClientConn
 }
 
-// Set up a connection to gRPC server with the address (ip:port).
+// Starts up a connection to gRPC server with |address|.
+// |address| is a string in the form of "IP:Port".
 func (client *GRPCClient) establishConnection(address string) error {
 	// Add context for gRPC request to set timeout to three seconds
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -27,7 +27,7 @@ func (client *GRPCClient) establishConnection(address string) error {
 	return nil
 }
 
-// Close the connection.
+// Ends the client connection to the target gRPC server.
 func (client *GRPCClient) closeConnection() error {
 	if client.grpcConn == nil {
 		return errors.New("attempt to close a empty connection")

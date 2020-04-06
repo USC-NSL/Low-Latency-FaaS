@@ -1,4 +1,3 @@
-
 package controller
 
 import (
@@ -11,13 +10,13 @@ import (
 //           run to completion (without preemption) for a batch of packets when it is scheduled.
 type Core struct {
 	instances []*Instance
-	sGroups []*SGroup
+	sGroups   []*SGroup
 }
 
 func newCore() *Core {
 	core := Core{
 		instances: make([]*Instance, 0),
-		sGroups: make([]*SGroup, 0),
+		sGroups:   make([]*SGroup, 0),
 	}
 	return &core
 }
