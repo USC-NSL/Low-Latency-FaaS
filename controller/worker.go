@@ -30,6 +30,7 @@ type Worker struct {
 	cores            map[int]*Core
 	freeSGroups      []*SGroup
 	instancePortPool *utils.IndexPool
+	pciePool         *utils.IndexPool
 }
 
 func newWorker(name string, ip string, vSwitchPort int, schedulerPort, coreNumOffset int, coreNum int) *Worker {
@@ -42,6 +43,7 @@ func newWorker(name string, ip string, vSwitchPort int, schedulerPort, coreNumOf
 		freeSGroups:   make([]*SGroup, 0),
 		// Ports taken by instances are between [50052, 51051]
 		instancePortPool: utils.NewIndexPool(50052, 1000),
+		pciePool:         utils.NewIndexPool(0, len(PCIeMappings)),
 	}
 
 	// coreId is ranged between [coreNumOffset, coreNumOffset + coreNum)
@@ -65,11 +67,11 @@ func (w *Worker) String() string {
 
 // Create an NF instance with type |funcType|. Waiting until receiving the tid from the instance.
 // Note: Call it only when creating a sGroups.
-func (w *Worker) createInstance(funcType string) (*Instance, error) {
+func (w *Worker) createInstance(funcType string, pcieIdx int, isIngress string, isEgress string) (*Instance, error) {
 	port := w.instancePortPool.GetNextAvailable()
 	// By default, the instance will run on core 0.
 
-	if _, err := kubectl.K8sHandler.CreateDeployment(w.name, 0, funcType, port); err != nil {
+	if _, err := kubectl.K8sHandler.CreateDeployment(w.name, funcType, port, PCIeMappings[pcieIdx], isIngress, isEgress); err != nil {
 		// Fail to create a new instance.
 		w.instancePortPool.Free(port)
 		return nil, err
@@ -81,7 +83,7 @@ func (w *Worker) createInstance(funcType string) (*Instance, error) {
 	return instance, nil
 }
 
-// Search and destroy an NF |instance|.
+// Destroy an NF |instance|.
 // Note: Call it only when freeing a sGroups.
 func (w *Worker) destroyInstance(instance *Instance) error {
 	err := kubectl.K8sHandler.DeleteDeployment(w.name, instance.funcType, instance.port)
@@ -96,14 +98,24 @@ func (w *Worker) destroyInstance(instance *Instance) error {
 // To avoid busy waiting, call this function in go routine.
 // Also send gRPC request to inform the scheduler.
 func (w *Worker) createSGroup(funcTypes []string) (*SGroup, error) {
+	pcieIdx := w.pciePool.GetNextAvailable()
 	instances := make([]*Instance, 0)
-	for _, funcType := range funcTypes {
-		newInstance, err := w.createInstance(funcType)
+	for i, funcType := range funcTypes {
+		isIngress := "false"
+		if i == 0 {
+			isIngress = "true"
+		}
+		isEgress := "false"
+		if i == len(funcTypes)-1 {
+			isEgress = "true"
+		}
+		newInstance, err := w.createInstance(funcType, pcieIdx, isIngress, isEgress)
 		if err != nil {
 			// Fail to create a new instance.
 			for _, instance := range instances {
 				w.destroyInstance(instance)
 			}
+			w.pciePool.Free(pcieIdx)
 			return nil, err
 		}
 		instances = append(instances, newInstance)
@@ -112,7 +124,7 @@ func (w *Worker) createSGroup(funcTypes []string) (*SGroup, error) {
 	for _, instance := range instances {
 		w.SetUpThread(instance.tid)
 	}
-	sGroup := newSGroup(w, instances)
+	sGroup := newSGroup(w, instances, pcieIdx)
 	w.freeSGroups = append(w.freeSGroups, sGroup)
 	return sGroup, nil
 }
@@ -126,6 +138,7 @@ func (w *Worker) destroySGroup(groupId int) error {
 				w.destroyInstance(instance)
 			}
 			w.freeSGroups = append(w.freeSGroups[:i], w.freeSGroups[i+1:]...)
+			w.pciePool.Free(sGroup.pcieIdx)
 			return nil
 		}
 	}

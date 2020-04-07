@@ -36,7 +36,7 @@ func newInstance(funcType string, hostIp string, port int) *Instance {
 }
 
 func (instance *Instance) String() string {
-	return fmt.Sprintf("%s(%d)", instance.funcType, instance.port)
+	return fmt.Sprintf("%s(port=%d,tid=%d)", instance.funcType, instance.port, instance.tid)
 }
 
 func (instance *Instance) waitTid() {

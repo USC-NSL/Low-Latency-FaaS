@@ -23,10 +23,46 @@ type SGroup struct {
 	coreId           int
 	groupId          int
 	tids             []int32
-	dmac             string
+	pcieIdx          int
 }
 
-func newSGroup(worker *Worker, instances []*Instance) *SGroup {
+var PCIeMappings = []string{
+	"5e:02.0",
+	"5e:02.1",
+	"5e:02.2",
+	"5e:02.3",
+	"5e:02.4",
+	"5e:02.5",
+	"5e:02.6",
+	"5e:02.7",
+	"5e:03.0",
+	"5e:03.1",
+	"5e:03.2",
+	"5e:03.3",
+	"5e:03.4",
+	"5e:03.5",
+	"5e:03.6",
+}
+
+var dmacMappings = []string{
+	"00:00:00:00:00:01",
+	"00:00:00:00:00:02",
+	"00:00:00:00:00:03",
+	"00:00:00:00:00:04",
+	"00:00:00:00:00:05",
+	"00:00:00:00:00:06",
+	"00:00:00:00:00:07",
+	"00:00:00:00:00:08",
+	"00:00:00:00:00:09",
+	"00:00:00:00:00:10",
+	"00:00:00:00:00:11",
+	"00:00:00:00:00:12",
+	"00:00:00:00:00:13",
+	"00:00:00:00:00:14",
+	"00:00:00:00:00:15",
+}
+
+func newSGroup(worker *Worker, instances []*Instance, pcieIdx int) *SGroup {
 	sGroup := SGroup{
 		instances:        make([]*Instance, len(instances)),
 		incQueueLength:   0,
@@ -38,6 +74,7 @@ func newSGroup(worker *Worker, instances []*Instance) *SGroup {
 		coreId:           -1,
 		groupId:          instances[0].tid,
 		tids:             make([]int32, len(instances)),
+		pcieIdx:          pcieIdx,
 	}
 	copy(sGroup.instances, instances)
 	for i, instance := range instances {
@@ -47,7 +84,7 @@ func newSGroup(worker *Worker, instances []*Instance) *SGroup {
 }
 
 func (s *SGroup) String() string {
-	info := ""
+	info := "["
 	for idx, instance := range s.instances {
 		if idx == 0 {
 			info += fmt.Sprintf("%s", instance)
@@ -55,7 +92,7 @@ func (s *SGroup) String() string {
 			info += fmt.Sprintf("->%s", instance)
 		}
 	}
-	return info
+	return info + fmt.Sprintf("](id=%d,pcie=%s)", s.groupId, PCIeMappings[s.pcieIdx])
 }
 
 func (s *SGroup) match(funcTypes []string) bool {
