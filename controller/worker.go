@@ -17,20 +17,23 @@ import (
 // |vSwitchPort| is BESS gRPC port on host (e.g. FlowGen).
 // |schedulerPort| is Cooperativesched gRCP port on host.
 // |cores| is the abstraction of cores on the node (a mapping from real core number to the core).
-// |freeInstances| are NF instances not pinned to any core yet (but in memory).
+// |freeSGroups| are free sGroups not pinned to any core yet (but in memory).
 // |instancePortPool| manages ports taken by instances on the node.
 // This is to prevent conflicts on host TCP ports.
+// |pciePool| manages pcie port taken by sGroup on the node.
+// |instanceWaitingPool| is a pool for instances to wait for setting up.
 type Worker struct {
 	grpc.VSwitchGRPCHandler
 	grpc.SchedulerGRPCHandler
-	name             string
-	ip               string
-	vSwitchPort      int
-	schedulerPort    int
-	cores            map[int]*Core
-	freeSGroups      []*SGroup
-	instancePortPool *utils.IndexPool
-	pciePool         *utils.IndexPool
+	name                string
+	ip                  string
+	vSwitchPort         int
+	schedulerPort       int
+	cores               map[int]*Core
+	freeSGroups         []*SGroup
+	instancePortPool    *utils.IndexPool
+	pciePool            *utils.IndexPool
+	instanceWaitingPool InstanceWaitingPool
 }
 
 func newWorker(name string, ip string, vSwitchPort int, schedulerPort, coreNumOffset int, coreNum int) *Worker {
@@ -79,6 +82,7 @@ func (w *Worker) createInstance(funcType string, pcieIdx int, isIngress string, 
 
 	// Succeed
 	instance := newInstance(funcType, w.ip, port)
+	w.instanceWaitingPool.add(instance)
 	instance.waitTid()
 	return instance, nil
 }

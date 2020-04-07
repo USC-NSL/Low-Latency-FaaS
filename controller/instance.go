@@ -53,3 +53,29 @@ func (instance *Instance) notifyTid(tid int) {
 	instance.cond.Signal()
 	instance.cond.L.Lock()
 }
+
+type InstanceWaitingPool struct {
+	mutex sync.Mutex
+	pool  []*Instance
+}
+
+func (waitingPool *InstanceWaitingPool) add(instance *Instance) {
+	waitingPool.mutex.Lock()
+	waitingPool.pool = append(waitingPool.pool, instance)
+	waitingPool.mutex.Unlock()
+}
+
+func (waitingPool *InstanceWaitingPool) remove(port int, tid int) {
+	waitingPool.mutex.Lock()
+	for i, instance := range waitingPool.pool {
+		if instance.port == port {
+			instance.notifyTid(tid)
+			waitingPool.pool = append(waitingPool.pool[:i], waitingPool.pool[i+1:]...)
+			waitingPool.mutex.Unlock()
+			return
+		}
+	}
+	waitingPool.mutex.Unlock()
+	//TODO: Probably caused by competition.
+	fmt.Printf("Error: Try to remove nonexistent instance with port %d", port)
+}

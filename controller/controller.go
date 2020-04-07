@@ -31,7 +31,7 @@ func NewFaaSController() *FaaSController {
 	// Initializes all worker nodes when starting a |FaaSController|.
 	// Now core 0 is reserved for the scheduler on the machine.
 	// TODO: Replace hard-code information with reading from k8s configurations.
-	c.createWorker("uscnsl", "204.57.7.3", 10514, 10515, 1, 7)
+	//c.createWorker("uscnsl", "204.57.7.3", 10514, 10515, 1, 7)
 	c.createWorker("ubuntu", "204.57.7.14", 10514, 10515, 1, 7)
 	return c
 }
@@ -144,5 +144,13 @@ func (c *FaaSController) CleanUpAllWorkers() error {
 			return err
 		}
 	}
+	return nil
+}
+
+func (c *FaaSController) InstanceSetUp(nodeName string, port int, tid int) error {
+	if _, exists := c.workers[nodeName]; !exists {
+		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
+	}
+	c.workers[nodeName].instanceWaitingPool.remove(port, tid)
 	return nil
 }

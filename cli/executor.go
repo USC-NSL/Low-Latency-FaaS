@@ -27,7 +27,7 @@ func NewExecutor(FaaSController *controller.FaaSController) *Executor {
 // 2. List all the information of workers in the system: workers.
 // 3. Create a sGroup  on a node by a list of NFs:
 //    - add |nodeName| |funcType1| |funcType2| ...
-// 4. Remove a sGroup on a node by its group id:
+// 4. Remove a sGroup oby its group id:
 //    - rm |nodeName| |groupId|
 // 5. Destroy a deployment in kubernetes by its name:
 //    - kubectl rm |deploymentName|

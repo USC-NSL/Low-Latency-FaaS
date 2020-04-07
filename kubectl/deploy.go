@@ -88,6 +88,8 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, funcType stri
 								"command": []string{
 									//"sleep", "1500",
 									"/app/main",
+									"--node_name=" + nodeName,
+									"--port=" + portId,
 									"--module=" + moduleName,
 									"--ingress=" + isIngress,
 									"--egress=" + isEgress,
