@@ -20,8 +20,8 @@ type Instance struct {
 	funcType string
 	port     int
 	address  string
-	tid int
-	cond *sync.Cond
+	tid      int
+	cond     *sync.Cond
 }
 
 func newInstance(funcType string, hostIp string, port int) *Instance {
@@ -29,8 +29,8 @@ func newInstance(funcType string, hostIp string, port int) *Instance {
 		funcType: funcType,
 		port:     port,
 		address:  hostIp + ":" + strconv.Itoa(port),
-		tid: 0,
-		cond: sync.NewCond(&sync.Mutex{}),
+		tid:      0,
+		cond:     sync.NewCond(&sync.Mutex{}),
 	}
 	return &instance
 }

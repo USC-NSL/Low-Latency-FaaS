@@ -8,12 +8,12 @@ import (
 // |sGroups| is a chain of instances in the core. sGroup is the minimal scheduling unit and will
 //           run to completion (without preemption) for a batch of packets when it is scheduled.
 type Core struct {
-	sGroups   []*SGroup
+	sGroups []*SGroup
 }
 
 func newCore() *Core {
 	core := Core{
-		sGroups:   make([]*SGroup, 0),
+		sGroups: make([]*SGroup, 0),
 	}
 	return &core
 }

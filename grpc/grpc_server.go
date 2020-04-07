@@ -16,7 +16,9 @@ const (
 )
 
 type Controller interface {
-	UpdateFlow(srcIP string, srcPort uint32, dstIP string, dstPort uint32, protocol uint32) error
+	UpdateFlow(srcIP string, srcPort uint32, dstIP string, dstPort uint32, protocol uint32) (string, error)
+	// TODO: Add interface function for InstanceUpdateStats
+	// TODO: Add interface function for InstanceSetUp
 }
 
 type GRPCServer struct {
@@ -42,9 +44,12 @@ func NewGRPCServer(c Controller) {
 // The flow is updated to |s.FaaSController|, which then selects
 // the target NF chains to process this flow.
 func (s *GRPCServer) UpdateFlow(context context.Context, flowInfo *pb.FlowInfo) (*pb.FlowTableEntry, error) {
-	s.FaaSController.UpdateFlow(flowInfo.Ipv4Src, flowInfo.TcpSport, flowInfo.Ipv4Dst, flowInfo.TcpDport, flowInfo.Ipv4Protocol)
-	response := &pb.FlowTableEntry{}
-	return response, nil
+	dmac, err := s.FaaSController.UpdateFlow(flowInfo.Ipv4Src, flowInfo.TcpSport, flowInfo.Ipv4Dst, flowInfo.TcpDport, flowInfo.Ipv4Protocol)
+	if err != nil {
+		fmt.Printf("Error: failed to serve flow: %s\n", err.Error())
+	}
+	response := &pb.FlowTableEntry{SwitchPort: 20, Dmac: dmac}
+	return response, err
 }
 
 // This function is called when a sgroup updates traffic statistics.

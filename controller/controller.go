@@ -112,8 +112,8 @@ func (c *FaaSController) CreateSGroup(nodeName string, funcTypes []string) error
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
 
-	// TODO: check funcType here.
-	return c.workers[nodeName].createSGroup(funcTypes)
+	_, err := c.workers[nodeName].createSGroup(funcTypes)
+	return err
 }
 
 func (c *FaaSController) DestroySGroup(nodeName string, groupId int) error {

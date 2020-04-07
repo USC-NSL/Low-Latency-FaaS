@@ -8,7 +8,7 @@ import (
 // |instances| are the NF instances belonging to the scheduling group.
 // |QueueLength, QueueCapacity| are the information of the queue before each sGroup.
 // |traffic| describes the observed traffic in the sGroup.
-// |worker| is the worker node that the sGroup assigned to.
+// |worker| is the worker node that the sGroup attached to. Set -1 when not attached.
 // |coreId| is the core that the sGroup scheduled to.
 // |groupId| is the unique identifier of the sGroup on a worker. Technically, it is equal to the tid of its first NF instance.
 // |tids| is an array of the tid of every instance in it.
@@ -21,11 +21,12 @@ type SGroup struct {
 	traffic          int
 	worker           *Worker
 	coreId           int
-	groupId int
-	tids []int32
+	groupId          int
+	tids             []int32
+	dmac             string
 }
 
-func newSGroup(worker *Worker, coreId int, instances []*Instance) *SGroup {
+func newSGroup(worker *Worker, instances []*Instance) *SGroup {
 	sGroup := SGroup{
 		instances:        make([]*Instance, len(instances)),
 		incQueueLength:   0,
@@ -34,9 +35,9 @@ func newSGroup(worker *Worker, coreId int, instances []*Instance) *SGroup {
 		outQueueCapacity: 0,
 		traffic:          0,
 		worker:           worker,
-		coreId:           coreId,
-		groupId: instances[0].tid,
-		tids: make([]int32, len(instances)),
+		coreId:           -1,
+		groupId:          instances[0].tid,
+		tids:             make([]int32, len(instances)),
 	}
 	copy(sGroup.instances, instances)
 	for i, instance := range instances {

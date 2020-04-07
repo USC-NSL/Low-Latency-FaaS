@@ -25,10 +25,10 @@ func NewExecutor(FaaSController *controller.FaaSController) *Executor {
 // The list of all API commands:
 // 1. Query and Print: pods, deps, nodes.
 // 2. List all the information of workers in the system: worker.
-// 3. Create an instance on a node:
+// 3. Create a sGroup on a node:
 //    - add |nodeName| |funcType|
-// 4. Remove an instance on a node:
-//    - rm |nodeName| |funcType|
+// 4. Remove a sGroup on a node:
+//    - rm |nodeName| |groupId|
 // 5. Destroy a deployment in kubernetes by its name:
 //    - kubectl rm |deploymentName|
 // 6. Simulate a flow comeing in the system:
@@ -109,8 +109,10 @@ func (e *Executor) Execute(s string) {
 		dstIp := words[3]
 		dstPort, _ := strconv.Atoi(words[4])
 		protocol, _ := strconv.Atoi(words[5])
-		if err := e.FaaSController.UpdateFlow(srcIp, uint32(srcPort), dstIp, uint32(dstPort), uint32(protocol)); err != nil {
+		if dmac, err := e.FaaSController.UpdateFlow(srcIp, uint32(srcPort), dstIp, uint32(dstPort), uint32(protocol)); err != nil {
 			fmt.Printf("Failed to update flow: %s!\n", err.Error())
+		} else {
+			fmt.Printf("Return dmac = %s.", dmac)
 		}
 	}
 }

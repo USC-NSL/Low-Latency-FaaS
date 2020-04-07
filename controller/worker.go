@@ -16,9 +16,7 @@ import (
 // |ip| is the ip address of the worker node.
 // |vSwitchPort| is BESS gRPC port on host (e.g. FlowGen).
 // |schedulerPort| is Cooperativesched gRCP port on host.
-// |cores| is the abstraction of cores on the node.
-// |coreNumOffset| is for mapping from cores array to real physical core number.
-// |coreNumOffset| + index (in cores array) = real core number.
+// |cores| is the abstraction of cores on the node (a mapping from real core number to the core).
 // |freeInstances| are NF instances not pinned to any core yet (but in memory).
 // |instancePortPool| manages ports taken by instances on the node.
 // This is to prevent conflicts on host TCP ports.
@@ -29,9 +27,8 @@ type Worker struct {
 	ip               string
 	vSwitchPort      int
 	schedulerPort    int
-	cores            []*Core
-	coreNumOffset    int
-	freeSGroups    []*SGroup
+	cores            map[int]*Core
+	freeSGroups      []*SGroup
 	instancePortPool *utils.IndexPool
 }
 
@@ -41,23 +38,23 @@ func newWorker(name string, ip string, vSwitchPort int, schedulerPort, coreNumOf
 		ip:            ip,
 		vSwitchPort:   vSwitchPort,
 		schedulerPort: schedulerPort,
-		cores:         make([]*Core, coreNum),
-		coreNumOffset: coreNumOffset,
-		freeSGroups: make([]*SGroup, 0),
+		cores:         make(map[int]*Core),
+		freeSGroups:   make([]*SGroup, 0),
 		// Ports taken by instances are between [50052, 51051]
 		instancePortPool: utils.NewIndexPool(50052, 1000),
 	}
 
+	// coreId is ranged between [coreNumOffset, coreNumOffset + coreNum)
 	for i := 0; i < coreNum; i++ {
-		worker.cores[i] = newCore()
+		worker.cores[i+coreNumOffset] = newCore()
 	}
 	return &worker
 }
 
 func (w *Worker) String() string {
 	info := fmt.Sprintf("Worker [%s] at %s \n Core:", w.name, w.ip)
-	for idx, core := range w.cores {
-		info += fmt.Sprintf("\n  %d %s", idx+w.coreNumOffset, core)
+	for coreId, core := range w.cores {
+		info += fmt.Sprintf("\n  %d %s", coreId, core)
 	}
 	info += "\n Free instances:"
 	for _, instance := range w.freeSGroups {
@@ -95,10 +92,10 @@ func (w *Worker) destroyInstance(instance *Instance) error {
 	return err
 }
 
-// Create a |sGroup| by an array of NF types and store it in freeSGroups.
+// Create a |sGroup| by a chain of NFs |funcTypes| and store it in freeSGroups.
 // To avoid busy waiting, call this function in go routine.
 // Also send gRPC request to inform the scheduler.
-func (w *Worker) createSGroup(funcTypes []string) error {
+func (w *Worker) createSGroup(funcTypes []string) (*SGroup, error) {
 	instances := make([]*Instance, 0)
 	for _, funcType := range funcTypes {
 		newInstance, err := w.createInstance(funcType)
@@ -107,7 +104,7 @@ func (w *Worker) createSGroup(funcTypes []string) error {
 			for _, instance := range instances {
 				w.destroyInstance(instance)
 			}
-			return err
+			return nil, err
 		}
 		instances = append(instances, newInstance)
 	}
@@ -115,9 +112,9 @@ func (w *Worker) createSGroup(funcTypes []string) error {
 	for _, instance := range instances {
 		w.SetUpThread(instance.tid)
 	}
-	sGroup := newSGroup(w, 0, instances)
+	sGroup := newSGroup(w, instances)
 	w.freeSGroups = append(w.freeSGroups, sGroup)
-	return nil
+	return sGroup, nil
 }
 
 // Search and destroy a free sGroup by its groupId (equal to the tid of its first NF instance).
@@ -132,31 +129,62 @@ func (w *Worker) destroySGroup(groupId int) error {
 			return nil
 		}
 	}
-	return errors.New(fmt.Sprintf("could not find groupId %d in %s", groupId, w.name))
+	return errors.New(fmt.Sprintf("could not find sGroup (id = %d) in %s", groupId, w.name))
 }
 
-// Find existing instance of NF |funcType|.
-// If not found, return -1.
-func (w *Worker) findFreeSGroup(funcTypes []string) int {
-	for idx, sGroup := range w.freeSGroups {
+// Find runnable |sGroup| on a core to place the logical chain with |funcTypes|.
+// If not found, return nil.
+func (w *Worker) findRunnableSGroup(funcTypes []string) *SGroup {
+	for _, core := range w.cores {
+		for _, sGroup := range core.sGroups {
+			if sGroup.match(funcTypes) {
+				return sGroup
+			}
+		}
+	}
+	return nil
+}
+
+// Find free |sGroup| in freeSGroups to place the logical chain with |funcTypes|.
+// If not found, return nil.
+func (w *Worker) findFreeSGroup(funcTypes []string) *SGroup {
+	for _, sGroup := range w.freeSGroups {
 		if sGroup.match(funcTypes) {
-			return idx
+			return sGroup
+		}
+	}
+	return nil
+}
+
+// TODO: Adjust core selection strategy.
+func (w *Worker) findAvailableCore() int {
+	for coreId, core := range w.cores {
+		if len(core.sGroups) == 0 {
+			return coreId
 		}
 	}
 	return -1
 }
 
-// Scheduling a new |sGroup| on core |coreId|.
-func (w *Worker) scheduleSGroup(funcTypes []string, coreId int) error {
-	idx := w.findFreeSGroup(funcTypes)
+// Attach a new |sGroup| from freeSGroups on core |coreId|.
+func (w *Worker) attachSGroup(sGroup *SGroup, coreId int) error {
+	idx := -1
+	for i, group := range w.freeSGroups {
+		if group == sGroup {
+			idx = i
+		}
+	}
 	if idx == -1 {
-		return errors.New(fmt.Sprintf("cannot find free sGroup for %s at node %s", funcTypes, w.name))
+		return errors.New(fmt.Sprintf("cannot find free sGroup (id = %d) at node %s", sGroup.groupId, w.name))
 	}
 	// Move it from freeSGroups to a core.
-	sGroup := w.freeSGroups[idx]
 	w.freeSGroups = append(w.freeSGroups[:idx], w.freeSGroups[idx+1:]...)
 	w.cores[coreId].sGroups = append(w.cores[coreId].sGroups, sGroup)
 	// Send gRPC to inform scheduler.
 	w.AttachChain(sGroup.tids, coreId)
 	return nil
+}
+
+func (w *Worker) migrateSGroup() {
+
 }

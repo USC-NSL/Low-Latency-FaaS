@@ -87,11 +87,8 @@ message FlowInfo {
 }
 
 message FlowTableEntry {
-    // |flow_id| represents a unique transport-layer packet flow.
-    // |nsh.context| will be set to |flow_id|.
-    uint32 flow_id = 1;
-    uint32 spi = 2;
-    uint32 si = 3;
+    uint32 switch_port = 2;
+    string dmac = 3;
 }
 
 message InstanceTableEntry {
