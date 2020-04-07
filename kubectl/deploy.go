@@ -93,7 +93,7 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, funcType stri
 									"--module=" + moduleName,
 									"--ingress=" + isIngress,
 									"--egress=" + isEgress,
-									"--isolation_key=" + deploymentName,
+									"--isolation_key=" + pcie,
 									"--device=" + pcie,
 								},
 								"volumeMounts": []map[string]interface{}{

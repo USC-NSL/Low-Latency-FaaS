@@ -65,7 +65,7 @@ func (s *GRPCServer) InstanceSetUp(context context.Context, instanceInfo *pb.Ins
 	nodeName := instanceInfo.GetNodeName()
 	port := int(instanceInfo.GetPort())
 	tid := int(instanceInfo.GetTid())
-	fmt.Printf("Called by %s:%d tid=%d .\n", nodeName, port, tid)
+	fmt.Printf("Called by %s:%d (tid=%d).\n", nodeName, port, tid)
 	if err := s.FaaSController.InstanceSetUp(nodeName, port, tid); err != nil {
 		return &pb.Error{Code: 1, Errmsg: err.Error()}, err
 	}

@@ -133,7 +133,7 @@ func (w *Worker) createSGroup(funcTypes []string) (*SGroup, error) {
 	return sGroup, nil
 }
 
-// Search and destroy a free sGroup by its groupId (equal to the tid of its first NF instance).
+// Search and destroy a free sGroup by |groupId| (equal to the tid of its first NF instance).
 // Also free all instances within it.
 func (w *Worker) destroySGroup(groupId int) error {
 	for i, sGroup := range w.freeSGroups {
@@ -202,6 +202,6 @@ func (w *Worker) attachSGroup(sGroup *SGroup, coreId int) error {
 	return nil
 }
 
-func (w *Worker) migrateSGroup() {
+// TODO: migrateSGroup
 
-}
+// TODO: detachSGroup

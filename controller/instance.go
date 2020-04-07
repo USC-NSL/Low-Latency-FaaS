@@ -51,7 +51,7 @@ func (instance *Instance) notifyTid(tid int) {
 	instance.cond.L.Lock()
 	instance.tid = tid
 	instance.cond.Signal()
-	instance.cond.L.Lock()
+	instance.cond.L.Unlock()
 }
 
 type InstanceWaitingPool struct {
