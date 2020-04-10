@@ -39,6 +39,8 @@ func (instance *Instance) String() string {
 	return fmt.Sprintf("%s(port=%d,tid=%d)", instance.funcType, instance.port, instance.tid)
 }
 
+// When a instance is created, it will wait for the TID information sent through gRPC requests.
+// Implemented based on conditional variable |cond| inside instance.
 func (instance *Instance) waitTid() {
 	instance.cond.L.Lock()
 	for instance.tid == 0 {
@@ -47,6 +49,7 @@ func (instance *Instance) waitTid() {
 	instance.cond.L.Unlock()
 }
 
+// Wake up a instance and notify the tid when receiving its TID from gRPC request.
 func (instance *Instance) notifyTid(tid int) {
 	instance.cond.L.Lock()
 	instance.tid = tid
@@ -54,17 +57,21 @@ func (instance *Instance) notifyTid(tid int) {
 	instance.cond.L.Unlock()
 }
 
+// Each worker has a pool to store instances which are waiting for the TID information sent through gRPC requests.
+// |mutex| is required since both main thread and gRPC server thread may access it at the same time.
 type InstanceWaitingPool struct {
 	mutex sync.Mutex
 	pool  []*Instance
 }
 
+// Add an instance in the waiting pool.
 func (waitingPool *InstanceWaitingPool) add(instance *Instance) {
 	waitingPool.mutex.Lock()
 	waitingPool.pool = append(waitingPool.pool, instance)
 	waitingPool.mutex.Unlock()
 }
 
+// Remove an instance (identified by its port) from the waiting pool after receiving its |tid|.
 func (waitingPool *InstanceWaitingPool) remove(port int, tid int) {
 	waitingPool.mutex.Lock()
 	for i, instance := range waitingPool.pool {

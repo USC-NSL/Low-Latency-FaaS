@@ -151,6 +151,8 @@ func (c *FaaSController) CleanUpAllWorkers() error {
 	return nil
 }
 
+// Called when receiving gRPC request for an new instance setting up.
+// The new instance is on worker |nodeName| with allocated port |port| and TID |tid|.
 func (c *FaaSController) InstanceSetUp(nodeName string, port int, tid int) error {
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
