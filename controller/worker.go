@@ -135,6 +135,7 @@ func (w *Worker) createSGroup(funcTypes []string) (*SGroup, error) {
 
 // Search and destroy a free sGroup by |groupId| (equal to the tid of its first NF instance).
 // Also free all instances within it.
+// Note: Unable to destroy a sGroup which is currently attached to a core.
 func (w *Worker) destroySGroup(groupId int) error {
 	for i, sGroup := range w.freeSGroups {
 		if sGroup.groupId == groupId {
@@ -183,25 +184,83 @@ func (w *Worker) findAvailableCore() int {
 	return -1
 }
 
-// Attach a new |sGroup| from freeSGroups on core |coreId|.
-func (w *Worker) attachSGroup(sGroup *SGroup, coreId int) error {
+// Move sGroup with |groupId| from freeSGroups to core |coreId|.
+func (w *Worker) attachSGroup(groupId int, coreId int) error {
+	if _, exists := w.cores[coreId]; !exists {
+		return errors.New(fmt.Sprintf("core %d not found", coreId))
+	}
+
 	idx := -1
 	for i, group := range w.freeSGroups {
-		if group == sGroup {
+		if group.groupId == groupId {
 			idx = i
 		}
 	}
 	if idx == -1 {
-		return errors.New(fmt.Sprintf("cannot find free sGroup (id = %d) at node %s", sGroup.groupId, w.name))
+		return errors.New(fmt.Sprintf("cannot find free sGroup (id = %d) at node %s", groupId, w.name))
 	}
 	// Move it from freeSGroups to a core.
+	sGroup := w.freeSGroups[idx]
 	w.freeSGroups = append(w.freeSGroups[:idx], w.freeSGroups[idx+1:]...)
 	w.cores[coreId].sGroups = append(w.cores[coreId].sGroups, sGroup)
 	// Send gRPC to inform scheduler.
-	w.AttachChain(sGroup.tids, coreId)
+	if status, err := w.AttachChain(sGroup.tids, coreId); err != nil {
+		return err
+	} else if status.GetError() != 0 {
+		return errors.New(fmt.Sprintf("error from gRPC request AttachChain: %s", status.GetMessage()))
+	}
 	return nil
 }
 
-// TODO: migrateSGroup
+// Migrate sGroup with |groupId| from core |coreFrom| to core |coreTo|.
+func (w *Worker) migrateSGroup(groupId int, coreFrom int, coreTo int) error {
+	if err := w.detachSGroup(groupId, coreFrom); err != nil {
+		return err
+	}
+	if err := w.attachSGroup(groupId, coreTo); err != nil {
+		return err
+	}
+	return nil
+}
 
-// TODO: detachSGroup
+// Detach sGroup with |groupId| from core |coreId| and move it to freeSGroups.
+func (w *Worker) detachSGroup(groupId int, coreId int) error {
+	if _, exists := w.cores[coreId]; !exists {
+		return errors.New(fmt.Sprintf("core %d not found", coreId))
+	}
+
+	// Move it from core |coreId| to freeSGroups.
+	sGroup := w.cores[coreId].detachSGroup(groupId)
+	if sGroup == nil {
+		return errors.New(fmt.Sprintf("cannot find sGroup (id = %d) on core %d of node %s", groupId, coreId, w.name))
+	}
+	w.freeSGroups = append(w.freeSGroups, sGroup)
+	// Send gRPC to inform scheduler.
+	if status, err := w.DetachChain(sGroup.tids, coreId); err != nil {
+		return err
+	} else if status.GetError() != 0 {
+		return errors.New(fmt.Sprintf("error from gRPC request DetachChain: %s", status.GetMessage()))
+	}
+	return nil
+}
+
+// Detach and destroy all sGroups on the worker.
+func (w *Worker) cleanUp() error {
+	// Detach all sGroups.
+	for coreId, core := range w.cores {
+		for len(core.sGroups) > 0 {
+			sGroup := core.sGroups[0]
+			if err := w.detachSGroup(sGroup.groupId, coreId); err != nil {
+				return err
+			}
+		}
+	}
+	// Destroy all sGroups.
+	for len(w.freeSGroups) > 0 {
+		sGroup := w.freeSGroups[0]
+		if err := w.destroySGroup(sGroup.groupId); err != nil {
+			return err
+		}
+	}
+	return nil
+}

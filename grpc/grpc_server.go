@@ -48,7 +48,7 @@ func (s *GRPCServer) UpdateFlow(context context.Context, flowInfo *pb.FlowInfo) 
 	if err != nil {
 		fmt.Printf("Error: failed to serve flow: %s\n", err.Error())
 	}
-	// TODO: Assign each worker a switch port number.
+	// TODO: Assign a switch port number to each worker.
 	response := &pb.FlowTableEntry{SwitchPort: 20, Dmac: dmac}
 	return response, err
 }

@@ -117,34 +117,32 @@ func (c *FaaSController) CreateSGroup(nodeName string, funcTypes []string) error
 	return err
 }
 
-// TODO: Move this function into worker.
 func (c *FaaSController) DestroySGroup(nodeName string, groupId int) error {
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
-
 	return c.workers[nodeName].destroySGroup(groupId)
 }
 
-// TODO: Move this function into worker.
-func (c *FaaSController) CleanUpWorker(nodeName string) error {
+func (c *FaaSController) AttachSGroup(nodeName string, groupId int, coreId int) error {
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
-	worker := c.workers[nodeName]
-	// TODO: Detach all sGroups.
-	for len(worker.freeSGroups) > 0 {
-		sGroup := worker.freeSGroups[0]
-		if err := worker.destroySGroup(sGroup.groupId); err != nil {
-			return err
-		}
-	}
-	return nil
+	return c.workers[nodeName].attachSGroup(groupId, coreId)
 }
 
+
+func (c *FaaSController) DetachSGroup(nodeName string, groupId int, coreId int) error {
+	if _, exists := c.workers[nodeName]; !exists {
+		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
+	}
+	return c.workers[nodeName].detachSGroup(groupId, coreId)
+}
+
+// Detach and destroy all sGroups.
 func (c *FaaSController) CleanUpAllWorkers() error {
 	for _, worker := range c.workers {
-		if err := c.CleanUpWorker(worker.name); err != nil {
+		if err := worker.cleanUp(); err != nil {
 			return err
 		}
 	}

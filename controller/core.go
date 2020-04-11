@@ -28,3 +28,19 @@ func (c *Core) String() string {
 	}
 	return info
 }
+
+// Attach |sGroup| on the core.
+func (c *Core) attachSGroup(sGroup *SGroup) {
+	c.sGroups = append(c.sGroups, sGroup)
+}
+
+// Detach sGroup with |groupId| on the core.
+func (c *Core) detachSGroup(groupId int) *SGroup {
+	for i, sGroup := range c.sGroups {
+		if sGroup.groupId == groupId {
+			c.sGroups = append(c.sGroups[:i], c.sGroups[i+1:]...)
+			return sGroup
+		}
+	}
+	return nil
+}

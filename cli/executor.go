@@ -25,13 +25,17 @@ func NewExecutor(FaaSController *controller.FaaSController) *Executor {
 // The list of all API commands:
 // 1. Query and Print: pods, deps, nodes.
 // 2. List all the information of workers in the system: workers.
-// 3. Create a sGroup  on a node by a list of NFs:
+// 3. Create a sGroup on a node by a list of NFs:
 //    - add |nodeName| |funcType1| |funcType2| ...
-// 4. Remove a sGroup oby its group id:
+// 4. Remove a free sGroup on a node:
 //    - rm |nodeName| |groupId|
-// 5. Destroy a deployment in kubernetes by its name:
+// 5. Attach a sGroup to a core:
+//    - attach |nodeName| |groupId| |coreId|
+// 6. Detach a sGroup from a core:
+//    - detach |nodeName| |groupId| |coreId|
+// 7. Destroy a deployment in kubernetes by its name:
 //    - kubectl rm |deploymentName|
-// 6. Simulate a flow comeing in the system:
+// 8. Simulate a flow coming to the system:
 //    - flow |srcIp| |srcPort| |dstIp| |dstPort| |protocol|
 //---------------------------------------------------------
 func (e *Executor) Execute(s string) {
@@ -75,6 +79,20 @@ func (e *Executor) Execute(s string) {
 		groupId, _ := strconv.Atoi(words[2])
 		if err := e.FaaSController.DestroySGroup(nodeName, groupId); err != nil {
 			fmt.Printf("Failed to delete sGroup %d on %s: %s.\n", groupId, nodeName, err.Error())
+		}
+	} else if words[0] == "attach" && len(words) > 3 {
+		nodeName := words[1]
+		groupId, _ := strconv.Atoi(words[2])
+		coreId, _ := strconv.Atoi(words[3])
+		if err := e.FaaSController.AttachSGroup(nodeName, groupId, coreId); err != nil {
+			fmt.Printf("Failed to attach sGroup (id=%d) on core %d of worker %s: %s!\n", groupId, coreId, nodeName, err.Error())
+		}
+	} else if words[0] == "detach" && len(words) > 3 {
+		nodeName := words[1]
+		groupId, _ := strconv.Atoi(words[2])
+		coreId, _ := strconv.Atoi(words[3])
+		if err := e.FaaSController.DetachSGroup(nodeName, groupId, coreId); err != nil {
+			fmt.Printf("Failed to detach sGroup (id=%d) on core %d of worker %s: %s!\n", groupId, coreId, nodeName, err.Error())
 		}
 	} else if words[0] == "kubectl" && len(words) > 2 {
 		command := words[1]

@@ -23,7 +23,7 @@ func (c *FaaSController) UpdateFlow(srcIP string, srcPort uint32, dstIP string, 
 	}
 
 	if sGroup, coreId := c.findFreeSGroup(funcTypes); sGroup != nil {
-		sGroup.worker.attachSGroup(sGroup, coreId)
+		sGroup.worker.attachSGroup(sGroup.groupId, coreId)
 		return dmacMappings[sGroup.pcieIdx], nil
 	}
 
@@ -31,7 +31,7 @@ func (c *FaaSController) UpdateFlow(srcIP string, srcPort uint32, dstIP string, 
 	if err != nil {
 		return "", err
 	}
-	sGroup.worker.attachSGroup(sGroup, coreId)
+	sGroup.worker.attachSGroup(sGroup.groupId, coreId)
 	// TODO: Packet loss due to busy waiting
 	return dmacMappings[sGroup.pcieIdx], nil
 }
