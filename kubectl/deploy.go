@@ -29,8 +29,10 @@ var moduleNameMappings = map[string]string{
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
 // In Kubernetes, the instance is run as a deployment with name "nodeName-funcType-portId".
 func (k8s *KubeController) generateDPDKDeployment(nodeName string, funcType string, hostPort int,
-	pcie string, isIngress string, isEgress string) unstructured.Unstructured {
+	pcie string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) unstructured.Unstructured {
 	portId := strconv.Itoa(hostPort)
+	vPortInc := strconv.Itoa(vPortIncIdx)
+	vPortOut := strconv.Itoa(vPortOutIdx)
 
 	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, funcType, portId)
 
@@ -95,6 +97,8 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, funcType stri
 									"--egress=" + isEgress,
 									"--isolation_key=" + pcie,
 									"--device=" + pcie,
+									"--vport_inc_idx=" + vPortInc,
+									"--vport_out_idx=" + vPortOut,
 								},
 								"volumeMounts": []map[string]interface{}{
 									{ // volume 0
@@ -203,10 +207,10 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, funcType stri
 // Create a NF instance with type |funcType| on node |nodeName| at core |workerCore|,
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
 // Essentially, it will call function generateDPDKDeployment to generate a deployment in kubernetes.
-func (k8s *KubeController) CreateDeployment(nodeName string, funcType string,
-	hostPort int, pcie string, isIngress string, isEgress string) (*unstructured.Unstructured, error) {
+func (k8s *KubeController) CreateDeployment(nodeName string, funcType string, hostPort int,
+	pcie string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) (*unstructured.Unstructured, error) {
 	deploymentAPI := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
-	deploymentConfig := k8s.generateDPDKDeployment(nodeName, funcType, hostPort, pcie, isIngress, isEgress)
+	deploymentConfig := k8s.generateDPDKDeployment(nodeName, funcType, hostPort, pcie, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 
 	deployment, err := k8s.dynamicClient.Resource(deploymentAPI).Namespace(k8s.namespace).Create(&deploymentConfig, metav1.CreateOptions{})
 	if err != nil {

@@ -27,8 +27,6 @@ type Worker struct {
 	grpc.SchedulerGRPCHandler
 	name                string
 	ip                  string
-	vSwitchPort         int
-	schedulerPort       int
 	cores               map[int]*Core
 	freeSGroups         []*SGroup
 	instancePortPool    *utils.IndexPool
@@ -36,17 +34,24 @@ type Worker struct {
 	instanceWaitingPool InstanceWaitingPool
 }
 
-func newWorker(name string, ip string, vSwitchPort int, schedulerPort, coreNumOffset int, coreNum int) *Worker {
+func newWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreNumOffset int, coreNum int) *Worker {
 	worker := Worker{
 		name:          name,
 		ip:            ip,
-		vSwitchPort:   vSwitchPort,
-		schedulerPort: schedulerPort,
 		cores:         make(map[int]*Core),
 		freeSGroups:   make([]*SGroup, 0),
 		// Ports taken by instances are between [50052, 51051]
 		instancePortPool: utils.NewIndexPool(50052, 1000),
 		pciePool:         utils.NewIndexPool(0, len(PCIeMappings)),
+	}
+
+	// TODO: Consider remove VSwitchGRPCHandler
+	//if err := worker.VSwitchGRPCHandler.EstablishConnection(fmt.Sprintf("%s:%d", ip, vSwitchPort)); err != nil {
+	//	fmt.Println("Fail to connect with vSwitch: " + err.Error())
+	//}
+
+	if err := worker.SchedulerGRPCHandler.EstablishConnection(fmt.Sprintf("%s:%d", ip, schedulerPort)); err != nil {
+		fmt.Println("Fail to connect with scheduler: " + err.Error())
 	}
 
 	// coreId is ranged between [coreNumOffset, coreNumOffset + coreNum)
@@ -70,11 +75,11 @@ func (w *Worker) String() string {
 
 // Create an NF instance with type |funcType|. Waiting until receiving the tid from the instance.
 // Note: Call it only when creating a sGroups.
-func (w *Worker) createInstance(funcType string, pcieIdx int, isIngress string, isEgress string) (*Instance, error) {
+func (w *Worker) createInstance(funcType string, pcieIdx int, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) (*Instance, error) {
 	port := w.instancePortPool.GetNextAvailable()
 	// By default, the instance will run on core 0.
 
-	if _, err := kubectl.K8sHandler.CreateDeployment(w.name, funcType, port, PCIeMappings[pcieIdx], isIngress, isEgress); err != nil {
+	if _, err := kubectl.K8sHandler.CreateDeployment(w.name, funcType, port, PCIeMappings[pcieIdx], isIngress, isEgress, vPortIncIdx, vPortOutIdx); err != nil {
 		// Fail to create a new instance.
 		w.instancePortPool.Free(port)
 		return nil, err
@@ -113,7 +118,9 @@ func (w *Worker) createSGroup(funcTypes []string) (*SGroup, error) {
 		if i == len(funcTypes)-1 {
 			isEgress = "true"
 		}
-		newInstance, err := w.createInstance(funcType, pcieIdx, isIngress, isEgress)
+		vPortIncIdx := i % len(funcTypes)
+		vPortOutIdx := (i + 1) % len(funcTypes)
+		newInstance, err := w.createInstance(funcType, pcieIdx, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 		if err != nil {
 			// Fail to create a new instance.
 			for _, instance := range instances {
