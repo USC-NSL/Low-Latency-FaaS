@@ -31,8 +31,8 @@ func NewFaaSController() *FaaSController {
 	// Initializes all worker nodes when starting a |FaaSController|.
 	// Now core 0 is reserved for the scheduler on the machine.
 	// TODO: Replace hard-code information with reading from k8s configurations.
-	c.createWorker("uscnsl", "204.57.7.3", 10514, 10515, 1, 7)
-	c.createWorker("ubuntu", "204.57.7.14", 10514, 10515, 1, 7)
+	//c.createWorker("uscnsl", "204.57.7.2", 10514, 10515, 1, 7)
+	c.createWorker("ubuntu", "204.57.7.11", 10514, 10515, 1, 7)
 	return c
 }
 
@@ -107,42 +107,54 @@ func (c *FaaSController) ShowNFDAGs(targetUser string) {
 	}
 }
 
-func (c *FaaSController) CreateInstance(nodeName string, funcType string) error {
+// Note: Only used for test. Call function FindCoreToServeSGroup to create sGroup instead.
+func (c *FaaSController) CreateSGroup(nodeName string, funcTypes []string) error {
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
 
-	// TODO: check funcType here.
-	return c.workers[nodeName].createInstance(funcType)
+	_, err := c.workers[nodeName].createSGroup(funcTypes)
+	return err
 }
 
-func (c *FaaSController) DestroyInstance(nodeName string, funcType string, port int) error {
+func (c *FaaSController) DestroySGroup(nodeName string, groupId int) error {
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
-
-	return c.workers[nodeName].destroyInstance(funcType, port)
+	return c.workers[nodeName].destroySGroup(groupId)
 }
 
-func (c *FaaSController) CleanUpWorker(nodeName string) error {
+func (c *FaaSController) AttachSGroup(nodeName string, groupId int, coreId int) error {
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
-	worker := c.workers[nodeName]
-	for len(worker.freeInstances) > 0 {
-		instance := worker.freeInstances[0]
-		if err := worker.destroyInstance(instance.funcType, instance.port); err != nil {
+	return c.workers[nodeName].attachSGroup(groupId, coreId)
+}
+
+
+func (c *FaaSController) DetachSGroup(nodeName string, groupId int, coreId int) error {
+	if _, exists := c.workers[nodeName]; !exists {
+		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
+	}
+	return c.workers[nodeName].detachSGroup(groupId, coreId)
+}
+
+// Detach and destroy all sGroups.
+func (c *FaaSController) CleanUpAllWorkers() error {
+	for _, worker := range c.workers {
+		if err := worker.cleanUp(); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (c *FaaSController) CleanUpAllWorkers() error {
-	for _, worker := range c.workers {
-		if err := c.CleanUpWorker(worker.name); err != nil {
-			return err
-		}
+// Called when receiving gRPC request for an new instance setting up.
+// The new instance is on worker |nodeName| with allocated port |port| and TID |tid|.
+func (c *FaaSController) InstanceSetUp(nodeName string, port int, tid int) error {
+	if _, exists := c.workers[nodeName]; !exists {
+		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
+	c.workers[nodeName].instanceWaitingPool.remove(port, tid)
 	return nil
 }

@@ -1,7 +1,8 @@
 package controller
 
 import (
-	"strconv"
+	"errors"
+	"fmt"
 )
 
 // This is the place to implement resource allocation.
@@ -13,82 +14,78 @@ import (
 // When a new flow arrives, |FaaSController| picks a sgroup to
 // serve. A flow is identified by its 5-tuple.
 // TODO: Complete the reasons for returning errors.
-func (c *FaaSController) UpdateFlow(srcIP string, srcPort uint32, dstIP string, dstPort uint32, protocol uint32) error {
-	// For a new flow, find out its logical sGroups(sub-chains) divisions.
-	sGroups := c.sGroupsDivision(srcIP, srcPort, dstIP, dstPort, protocol)
-	placement := c.schedule(sGroups)
-	for i := range sGroups {
-		worker := placement[i][0]
-		coreId, _ := strconv.Atoi(placement[i][1])
-		action := placement[i][2]
-		if action == "allocate" {
-			if err := c.workers[worker].scheduleSGroup(sGroups[i], coreId); err != nil {
-				return err
-			}
-		}
+func (c *FaaSController) UpdateFlow(srcIP string, srcPort uint32, dstIP string, dstPort uint32, protocol uint32) (string, error) {
+	// For a new flow, find out its logical sGroup(sub-chain) divisions.
+	funcTypes := c.sGroupsDivision(srcIP, srcPort, dstIP, dstPort, protocol)
+
+	if sGroup := c.findRunnableSGroup(funcTypes); sGroup != nil {
+		return dmacMappings[sGroup.pcieIdx], nil
 	}
-	// TODO: Send gRPC to notify ToR switch about routing information.
-	return nil
+
+	if sGroup, coreId := c.findFreeSGroup(funcTypes); sGroup != nil {
+		sGroup.worker.attachSGroup(sGroup.groupId, coreId)
+		return dmacMappings[sGroup.pcieIdx], nil
+	}
+
+	sGroup, coreId, err := c.FindCoreToServeSGroup(funcTypes)
+	if err != nil {
+		return "", err
+	}
+	sGroup.worker.attachSGroup(sGroup.groupId, coreId)
+	// TODO: Packet loss due to busy waiting
+	return dmacMappings[sGroup.pcieIdx], nil
 }
 
 // Give a flow five-tuple information, find out its logical
 // chain divisions.
 func (c *FaaSController) sGroupsDivision(srcIP string, srcPort uint32, dstIP string, dstPort uint32,
-	protocol uint32) [][]string {
-	return [][]string{{"a", "b", "c"}}
+	protocol uint32) []string {
+	return []string{"a", "b", "c"}
 }
 
-// For a group of |sGroups|, schedule them in the system.
-// For each sGroup, return a tuple of <worker, coreIdx, action>.
-// Action "place" means putting the sGroup to the existing chains.
-// Action "allocate" means allocating a chain for the sGroup.
-func (c *FaaSController) schedule(sGroups [][]string) [][3]string {
-	placement := make([][3]string, len(sGroups))
-	for i, sGroup := range sGroups {
-		nodeName, coreIdx := c.findAvailableSGroup(sGroup)
-		action := "place"
-		if nodeName == "" {
-			nodeName, coreIdx = c.allocateNewSGroup(sGroup)
-			action = "allocate"
+// Find runnable |sGroup| on a core to place the logical chain with |funcTypes|.
+// If not found, return nil.
+func (c *FaaSController) findRunnableSGroup(funcTypes []string) *SGroup {
+	for _, worker := range c.workers {
+		sGroup := worker.findRunnableSGroup(funcTypes)
+		if sGroup != nil {
+			return sGroup
 		}
-		placement[i] = [3]string{nodeName, strconv.Itoa(coreIdx), action}
 	}
-	return placement
+	return nil
 }
 
-// Find existing sGroup to place the |sGroup|.
-// Return worker |name| and core |coreIdx|.
-// If not found, return "" and -1.
-func (c *FaaSController) findAvailableSGroup(sGroup []string) (string, int) {
-	for name, worker := range c.workers {
-		for coreIdx, core := range worker.cores {
-			for _, group := range core.sGroups {
-				match := true
-				for i, instance := range group.instances {
-					if sGroup[i] != instance.funcType {
-						match = false
-						break
-					}
-				}
-				if match {
-					return name, coreIdx
-				}
+// Find free |sGroup| in freeSGroups to place the logical chain with |funcTypes|.
+// Also, an available |core| is required on the worker.
+// Return (sGroup, coreId).
+// If not found, return (nil, -1).
+func (c *FaaSController) findFreeSGroup(funcTypes []string) (*SGroup, int) {
+	for _, worker := range c.workers {
+		sGroup := worker.findFreeSGroup(funcTypes)
+		if sGroup != nil {
+			// TODO: Adjust core selection.
+			if coreId := worker.findAvailableCore(); coreId != -1 {
+				return sGroup, coreId
 			}
 		}
 	}
-	return "", -1
+	return nil, -1
 }
 
-// Allocate |sGroup| to a new core.
-// Return worker |name| and core |coreIdx|.
-// If unavailable to allocate, return "" and -1.
-func (c *FaaSController) allocateNewSGroup(sGroup []string) (string, int) {
-	for name, worker := range c.workers {
-		for coreIdx, core := range worker.cores {
-			if len(core.sGroups) == 0 {
-				return name, coreIdx
+// Find available worker to create a new |sGroup|.
+// Return (sGroup, coreId, error).
+// If unavailable to allocate, return (nil, -1, error).
+func (c *FaaSController) FindCoreToServeSGroup(funcTypes []string) (*SGroup, int, error) {
+	// TODO: Modify allocating strategy
+	for _, worker := range c.workers {
+		// TODO: Confirm there is enough pci for creating container.
+		if coreId := worker.findAvailableCore(); coreId != -1 {
+			if sGroup, err := worker.createSGroup(funcTypes); err != nil {
+				return nil, -1, err
+			} else {
+				return sGroup, coreId, err
 			}
 		}
 	}
-	return "", -1
+	return nil, -1, errors.New(fmt.Sprintf("could not find available worker"))
 }

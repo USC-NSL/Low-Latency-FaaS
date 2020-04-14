@@ -5,18 +5,15 @@ import (
 )
 
 // The abstraction of CPU core.
-// |instances| are the NF instances assigned on the core. Each instance will be assigned to a sGroup.
 // |sGroups| is a chain of instances in the core. sGroup is the minimal scheduling unit and will
 //           run to completion (without preemption) for a batch of packets when it is scheduled.
 type Core struct {
-	instances []*Instance
-	sGroups   []*SGroup
+	sGroups []*SGroup
 }
 
 func newCore() *Core {
 	core := Core{
-		instances: make([]*Instance, 0),
-		sGroups:   make([]*SGroup, 0),
+		sGroups: make([]*SGroup, 0),
 	}
 	return &core
 }
@@ -30,4 +27,20 @@ func (c *Core) String() string {
 		info += fmt.Sprintf("<%s> ", sGroup)
 	}
 	return info
+}
+
+// Attach |sGroup| on the core.
+func (c *Core) attachSGroup(sGroup *SGroup) {
+	c.sGroups = append(c.sGroups, sGroup)
+}
+
+// Detach sGroup with |groupId| on the core.
+func (c *Core) detachSGroup(groupId int) *SGroup {
+	for i, sGroup := range c.sGroups {
+		if sGroup.groupId == groupId {
+			c.sGroups = append(c.sGroups[:i], c.sGroups[i+1:]...)
+			return sGroup
+		}
+	}
+	return nil
 }

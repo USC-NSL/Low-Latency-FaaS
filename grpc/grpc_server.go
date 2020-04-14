@@ -16,7 +16,9 @@ const (
 )
 
 type Controller interface {
-	UpdateFlow(srcIP string, srcPort uint32, dstIP string, dstPort uint32, protocol uint32) error
+	UpdateFlow(srcIP string, srcPort uint32, dstIP string, dstPort uint32, protocol uint32) (string, error)
+	// TODO: Add interface function for InstanceUpdateStats
+	InstanceSetUp(nodeName string, port int, tid int) error
 }
 
 type GRPCServer struct {
@@ -42,9 +44,13 @@ func NewGRPCServer(c Controller) {
 // The flow is updated to |s.FaaSController|, which then selects
 // the target NF chains to process this flow.
 func (s *GRPCServer) UpdateFlow(context context.Context, flowInfo *pb.FlowInfo) (*pb.FlowTableEntry, error) {
-	s.FaaSController.UpdateFlow(flowInfo.Ipv4Src, flowInfo.TcpSport, flowInfo.Ipv4Dst, flowInfo.TcpDport, flowInfo.Ipv4Protocol)
-	response := &pb.FlowTableEntry{}
-	return response, nil
+	dmac, err := s.FaaSController.UpdateFlow(flowInfo.Ipv4Src, flowInfo.TcpSport, flowInfo.Ipv4Dst, flowInfo.TcpDport, flowInfo.Ipv4Protocol)
+	if err != nil {
+		fmt.Printf("Error: failed to serve flow: %s\n", err.Error())
+	}
+	// TODO: Assign a switch port number to each worker.
+	response := &pb.FlowTableEntry{SwitchPort: 20, Dmac: dmac}
+	return response, err
 }
 
 // This function is called when a sgroup updates traffic statistics.
@@ -57,6 +63,12 @@ func (s *GRPCServer) InstanceUpdateStats(context context.Context, stats *pb.Sgro
 // When a new instance sets up, it will inform the controller about its TID,
 // which will be used by the scheduler on the machine to schedule the instance.
 func (s *GRPCServer) InstanceSetUp(context context.Context, instanceInfo *pb.InstanceInfo) (*pb.Error, error) {
-	fmt.Printf("Called by %d.\n", instanceInfo.GetTid())
+	nodeName := instanceInfo.GetNodeName()
+	port := int(instanceInfo.GetPort())
+	tid := int(instanceInfo.GetTid())
+	fmt.Printf("Called by %s:%d (tid=%d).\n", nodeName, port, tid)
+	if err := s.FaaSController.InstanceSetUp(nodeName, port, tid); err != nil {
+		return &pb.Error{Code: 1, Errmsg: err.Error()}, err
+	}
 	return &pb.Error{Code: 0}, nil
 }

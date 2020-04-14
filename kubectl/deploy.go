@@ -22,21 +22,22 @@ var moduleNameMappings = map[string]string{
 	"chacha":   "CHACHA",
 	"aesenc":   "AESCBCEnc",
 	"aesdec":   "AESCBCDec",
+	"acl":      "ACL",
 }
 
-// Create a NF instance with type |funcType| on node |nodeName| at core |workerCore|,
+// Create a NF instance with type |funcType| on node |nodeName|,
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
 // In Kubernetes, the instance is run as a deployment with name "nodeName-funcType-portId".
-func (k8s *KubeController) generateDPDKDeployment(nodeName string, workerCore int, funcType string, hostPort int) unstructured.Unstructured {
-	coreId := strconv.Itoa(workerCore)
+func (k8s *KubeController) generateDPDKDeployment(nodeName string, funcType string, hostPort int,
+	pcie string, isIngress string, isEgress string) unstructured.Unstructured {
 	portId := strconv.Itoa(hostPort)
+
 	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, funcType, portId)
 
 	moduleName, exists := moduleNameMappings[funcType]
 	if !exists {
 		moduleName = "None"
 	}
-	fmt.Sprintf("%s, %s!\n", coreId, moduleName)
 
 	deployment := unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -87,11 +88,13 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, workerCore in
 								"command": []string{
 									//"sleep", "1500",
 									"/app/main",
-									"--module=ACL",
-									"--ingress=true",
-									"--egress=true",
-									"--isolation_key=x",
-									"--device=5e:02.0",
+									"--node_name=" + nodeName,
+									"--port=" + portId,
+									"--module=" + moduleName,
+									"--ingress=" + isIngress,
+									"--egress=" + isEgress,
+									"--isolation_key=" + pcie,
+									"--device=" + pcie,
 								},
 								"volumeMounts": []map[string]interface{}{
 									{ // volume 0
@@ -200,16 +203,17 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, workerCore in
 // Create a NF instance with type |funcType| on node |nodeName| at core |workerCore|,
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
 // Essentially, it will call function generateDPDKDeployment to generate a deployment in kubernetes.
-func (k8s *KubeController) CreateDeployment(nodeName string, workerCore int, funcType string,
-	hostPort int) (*unstructured.Unstructured, error) {
+func (k8s *KubeController) CreateDeployment(nodeName string, funcType string,
+	hostPort int, pcie string, isIngress string, isEgress string) (*unstructured.Unstructured, error) {
 	deploymentAPI := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
-	deploymentConfig := k8s.generateDPDKDeployment(nodeName, workerCore, funcType, hostPort)
+	deploymentConfig := k8s.generateDPDKDeployment(nodeName, funcType, hostPort, pcie, isIngress, isEgress)
 
 	deployment, err := k8s.dynamicClient.Resource(deploymentAPI).Namespace(k8s.namespace).Create(&deploymentConfig, metav1.CreateOptions{})
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("Create instance [%s] on %s with port %d successfully.\n", funcType, nodeName, hostPort)
+	fmt.Printf("Create instance [%s] (pcie=%s,ingress=%s,egress=%s) on %s with port %d successfully.\n",
+		funcType, pcie, isIngress, isEgress, nodeName, hostPort)
 	return deployment, nil
 }
 
