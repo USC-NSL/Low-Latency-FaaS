@@ -31,8 +31,8 @@ func NewFaaSController() *FaaSController {
 	// Initializes all worker nodes when starting a |FaaSController|.
 	// Now core 0 is reserved for the scheduler on the machine.
 	// TODO: Replace hard-code information with reading from k8s configurations.
-	//c.createWorker("uscnsl", "204.57.7.3", 10514, 10515, 1, 7)
-	c.createWorker("ubuntu", "204.57.7.14", 10514, 10515, 1, 7)
+	//c.createWorker("uscnsl", "204.57.7.2", 10514, 10515, 1, 7)
+	c.createWorker("ubuntu", "204.57.7.11", 10514, 10515, 1, 7)
 	return c
 }
 

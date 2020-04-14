@@ -8,6 +8,9 @@ import (
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
 )
 
+// Default value for tid of an uninitialized instance.
+const kUninitializedTid int = -1
+
 // The abstraction of NF instance.
 // |InstanceGRPCHandler| are functions to handle gRPC requests to the instance.
 // |funcType| is the type of NF inside the instance.
@@ -29,7 +32,7 @@ func newInstance(funcType string, hostIp string, port int) *Instance {
 		funcType: funcType,
 		port:     port,
 		address:  hostIp + ":" + strconv.Itoa(port),
-		tid:      0,
+		tid:      kUninitializedTid,
 		cond:     sync.NewCond(&sync.Mutex{}),
 	}
 	return &instance
@@ -43,7 +46,7 @@ func (instance *Instance) String() string {
 // Implemented based on conditional variable |cond| inside instance.
 func (instance *Instance) waitTid() {
 	instance.cond.L.Lock()
-	for instance.tid == 0 {
+	for instance.tid == kUninitializedTid {
 		instance.cond.Wait()
 	}
 	instance.cond.L.Unlock()
