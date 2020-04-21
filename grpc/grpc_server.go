@@ -17,7 +17,7 @@ const (
 
 type Controller interface {
 	UpdateFlow(srcIP string, srcPort uint32, dstIP string, dstPort uint32, protocol uint32) (string, error)
-	
+
 	InstanceSetUp(nodeName string, port int, tid int) error
 
 	UpdateTrafficInfo(nodeName string, port int, qlen int, kpps int) error
@@ -82,7 +82,7 @@ func (s *GRPCServer) UpdateTrafficInfo(context context.Context, msg *pb.TrafficI
 	port := int(msg.GetPort())
 	qlen := int(msg.GetQlen())
 	kpps := int(msg.GetKpps())
-	fmt.Printf("Called by %s:%d (q=%d, r=%d).\n", nodeName, port, qlen, kpps)
+
 	if err := s.FaaSController.UpdateTrafficInfo(nodeName, port, qlen, kpps); err != nil {
 		return &pb.Error{Code: 1, Errmsg: err.Error()}, err
 	}

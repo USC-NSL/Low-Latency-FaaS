@@ -131,7 +131,6 @@ func (c *FaaSController) AttachSGroup(nodeName string, groupId int, coreId int) 
 	return c.workers[nodeName].attachSGroup(groupId, coreId)
 }
 
-
 func (c *FaaSController) DetachSGroup(nodeName string, groupId int, coreId int) error {
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
@@ -161,9 +160,10 @@ func (c *FaaSController) InstanceSetUp(nodeName string, port int, tid int) error
 
 // Called when receiving gRPC request updating traffic info.
 // |qlen| is the NIC rx queue length. |kpps| is the traffic volume.
-func (c *FaaSController) UpdateTrafficInfo(nodeName string, port int, qlen int, kpps int) error {
+func (c *FaaSController) UpdateTrafficInfo(nodeName string, groupId int, qlen int, kpps int) error {
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
+
 	return nil
 }

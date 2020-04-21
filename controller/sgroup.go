@@ -4,21 +4,27 @@ import (
 	"fmt"
 )
 
-// The abstraction of minimal scheduling unit (or sub-chain) in each core.
+const (
+	NIC_RX_QUEUE_LENGTH = 2048
+	NIC_TX_QUEUE_LENGTH = 2048
+)
+
+// The abstraction of minimal scheduling unit at each CPU core.
 // |instances| are the NF instances belonging to the scheduling group.
-// |QueueLength, QueueCapacity| are the information of the queue before each sGroup.
-// |traffic| describes the observed traffic in the sGroup.
+// |QueueLength, QueueCapacity| are the NIC queue information.
+// |pktRateKpps| describes the observed traffic.
 // |worker| is the worker node that the sGroup attached to. Set -1 when not attached.
 // |coreId| is the core that the sGroup scheduled to.
 // |groupId| is the unique identifier of the sGroup on a worker. Technically, it is equal to the tid of its first NF instance.
 // |tids| is an array of the tid of every instance in it.
+// Both |groupId| and |pcieIdx| can be used to identify this sgroup.
 type SGroup struct {
 	instances        []*Instance
 	incQueueLength   int
 	incQueueCapacity int
 	outQueueLength   int
 	outQueueCapacity int
-	traffic          int
+	pktRateKpps      int
 	worker           *Worker
 	coreId           int
 	groupId          int
@@ -66,10 +72,10 @@ func newSGroup(worker *Worker, instances []*Instance, pcieIdx int) *SGroup {
 	sGroup := SGroup{
 		instances:        make([]*Instance, len(instances)),
 		incQueueLength:   0,
-		incQueueCapacity: 0,
+		incQueueCapacity: NIC_RX_QUEUE_LENGTH,
 		outQueueLength:   0,
-		outQueueCapacity: 0,
-		traffic:          0,
+		outQueueCapacity: NIC_TX_QUEUE_LENGTH,
+		pktRateKpps:      0,
 		worker:           worker,
 		coreId:           -1,
 		groupId:          instances[0].tid,
