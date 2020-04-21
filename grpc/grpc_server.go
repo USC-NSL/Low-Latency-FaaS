@@ -17,8 +17,10 @@ const (
 
 type Controller interface {
 	UpdateFlow(srcIP string, srcPort uint32, dstIP string, dstPort uint32, protocol uint32) (string, error)
-	// TODO: Add interface function for InstanceUpdateStats
+	
 	InstanceSetUp(nodeName string, port int, tid int) error
+
+	UpdateTrafficInfo(nodeName string, port int, qlen int, kpps int) error
 }
 
 type GRPCServer struct {
@@ -70,5 +72,20 @@ func (s *GRPCServer) InstanceSetUp(context context.Context, instanceInfo *pb.Ins
 	if err := s.FaaSController.InstanceSetUp(nodeName, port, tid); err != nil {
 		return &pb.Error{Code: 1, Errmsg: err.Error()}, err
 	}
+	return &pb.Error{Code: 0}, nil
+}
+
+// When a new instance sets up, it will inform the controller about its TID,
+// which will be used by the scheduler on the machine to schedule the instance.
+func (s *GRPCServer) UpdateTrafficInfo(context context.Context, msg *pb.TrafficInfo) (*pb.Error, error) {
+	nodeName := msg.GetNodeName()
+	port := int(msg.GetPort())
+	qlen := int(msg.GetQlen())
+	kpps := int(msg.GetKpps())
+	fmt.Printf("Called by %s:%d (q=%d, r=%d).\n", nodeName, port, qlen, kpps)
+	if err := s.FaaSController.UpdateTrafficInfo(nodeName, port, qlen, kpps); err != nil {
+		return &pb.Error{Code: 1, Errmsg: err.Error()}, err
+	}
+
 	return &pb.Error{Code: 0}, nil
 }

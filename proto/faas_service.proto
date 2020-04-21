@@ -18,4 +18,6 @@ service FaaSControl {
 	// When a new instance sets up, it will inform the controller about its TID,
 	// which will be used by the scheduler on the machine to schedule the instance.
 	rpc InstanceSetUp (InstanceInfo) returns (Error) {}
+
+    rpc UpdateTrafficInfo(TrafficInfo) returns (Error) {}
 }
