@@ -11,10 +11,16 @@ import (
 // Second, NF chains are packed periodically based on real-time
 // monitoring;
 
-// When a new flow arrives, |FaaSController| picks a sgroup to
-// serve. A flow is identified by its 5-tuple.
+// Called when a new flow arrives at the ToR switch. FaaSController
+// decides the target logical NF chain, and picks an active NF
+// chain to serve this flow. Returns the selected NF chain's unique
+// NIC MAC address.
 // TODO: Complete the reasons for returning errors.
-func (c *FaaSController) UpdateFlow(srcIP string, srcPort uint32, dstIP string, dstPort uint32, protocol uint32) (string, error) {
+func (c *FaaSController) UpdateFlow(srcIP string, srcPort uint32,
+	dstIP string, dstPort uint32, protocol uint32) (string, error) {
+	fmt.Println("Get a new flow.")
+	return "00:00:00:00:00:01", nil
+
 	// For a new flow, find out its logical sGroup(sub-chain) divisions.
 	funcTypes := c.sGroupsDivision(srcIP, srcPort, dstIP, dstPort, protocol)
 

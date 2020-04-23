@@ -6,24 +6,54 @@ import (
 	"strings"
 )
 
+type Flowlet interface {
+	Match(srcIP string, dstIP string, srcPort uint32, dstPort uint32, proto uint32) bool
+}
+
 type NF struct {
 	id       int
 	funcType string
-	nextNFs  map[int]*NF
+	prevNFs  []int
+	nextNFs  []int
 }
 
+type flowlet struct {
+	srcIP   string
+	dstIP   string
+	srcPort uint32
+	dstPort uint32
+	proto   uint32
+}
+
+func (f *flowlet) Match(srcIP string, dstIP string, srcPort uint32, dstPort uint32, proto uint32) bool {
+	return (f.srcIP == "" || f.srcIP == srcIP) &&
+		(f.dstIP == "0" || f.dstIP == dstIP) &&
+		(f.srcPort == 0 || f.srcPort == srcPort) &&
+		(f.dstPort == 0 || f.dstPort == dstPort)
+}
+
+// |DAG| is an abstraction of NF DAG deployment specified by
+// FaaS-NFV users. It defines a logical NF DAG that defines
+// dependencies among NFs, and a set of |flowlets| that defines
+// a set of traffic to be processed by this |DAG| deployment.
 type DAG struct {
-	NFMap map[int]*NF
+	NFMap    map[int]*NF
+	flowlets []*flowlet
+	chains   []string
+	isActive bool
 }
 
 func newDAG() *DAG {
 	return &DAG{
-		NFMap: make(map[int]*NF),
+		NFMap:    make(map[int]*NF),
+		flowlets: make([]*flowlet, 0),
+		chains:   make([]string, 0),
+		isActive: false,
 	}
 }
 
-// This function returns a formatted representation of NF graphs. The output
-// is a string and used by graph-easy to visualize the graph.
+// This function returns a formatted representation of NF graphs.
+// Returns a string to visualize the graph via graph-easy.
 func (g *DAG) String() string {
 	dag := []string{}
 	for id, nf := range g.NFMap {
@@ -32,13 +62,12 @@ func (g *DAG) String() string {
 		dag = append(dag, currStr)
 
 		// Adds all edges.
-		for nextId := range nf.nextNFs {
+		for _, nextId := range nf.nextNFs {
 			nextNF := g.NFMap[nextId]
 			nextStr := fmt.Sprintf("[%s\\nid=%d]", nextNF.funcType, nextId)
 			dag = append(dag, currStr+" -> "+nextStr)
 		}
 	}
-
 	return strings.Join(dag, " ")
 }
 
@@ -47,7 +76,8 @@ func (g *DAG) addNF(funcType string) error {
 	g.NFMap[id] = &NF{
 		id:       id,
 		funcType: funcType,
-		nextNFs:  make(map[int]*NF),
+		nextNFs:  make([]int, 0),
+		prevNFs:  make([]int, 0),
 	}
 	return nil
 }
@@ -66,6 +96,56 @@ func (g *DAG) connectNFs(up string, down string) error {
 		return errors.New(fmt.Sprintf(
 			"Error: failed to connect [%s] -> [%s]", up, down))
 	}
-	g.NFMap[upID].nextNFs[downID] = g.NFMap[downID]
+
+	g.NFMap[upID].nextNFs = append(g.NFMap[upID].nextNFs, downID)
+	g.NFMap[downID].prevNFs = append(g.NFMap[downID].prevNFs, upID)
+	return nil
+}
+
+// Adds a new flowlet to |g|. Flows matched with this flowlet are
+// processed by this logical DAG.
+func (g *DAG) addFlow(srcIP string, dstIP string, srcPort uint32, dstPort uint32, proto uint32) {
+	f := flowlet{srcIP, dstIP, srcPort, dstPort, proto}
+	g.flowlets = append(g.flowlets, &f)
+}
+
+// Checks whether an incoming flow needs to be processed by |g|.
+func (g *DAG) Match(srcIP string, dstIP string, srcPort uint32, dstPort uint32, proto uint32) bool {
+	for _, f := range g.flowlets {
+		if f.Match(srcIP, dstIP, srcPort, dstPort, proto) {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *DAG) Activate() error {
+	cnt := 0
+	var ingress *NF = nil
+	for _, nf := range g.NFMap {
+		if len(nf.prevNFs) == 0 {
+			ingress = nf
+			cnt += 1
+		}
+	}
+
+	if ingress == nil || cnt != 1 {
+		return errors.New("Failed to active. Invalid ingress node.")
+	}
+
+	g.chains = nil
+	// TODO: handle branching cases
+	curr := ingress
+	for {
+		g.chains = append(g.chains, curr.funcType)
+
+		if len(curr.nextNFs) == 0 {
+			break
+		}
+
+		curr = g.NFMap[curr.nextNFs[0]]
+	}
+
+	fmt.Printf("Activated chains: %v\n", g.chains)
 	return nil
 }

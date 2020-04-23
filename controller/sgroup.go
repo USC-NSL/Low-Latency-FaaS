@@ -98,7 +98,7 @@ func (s *SGroup) String() string {
 			info += fmt.Sprintf("->%s", instance)
 		}
 	}
-	return info + fmt.Sprintf("](id=%d,pcie=%s)", s.groupId, PCIeMappings[s.pcieIdx])
+	return info + fmt.Sprintf("](id=%d, pcie=%s, q=%d, pps=%d kpps)", s.groupId, PCIeMappings[s.pcieIdx], s.incQueueLength, s.pktRateKpps)
 }
 
 func (s *SGroup) match(funcTypes []string) bool {

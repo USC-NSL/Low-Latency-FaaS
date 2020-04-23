@@ -81,17 +81,26 @@ func (c *FaaSController) AddNF(user string, funcType string) error {
 // |user| is a string that represents the user's ID.
 func (c *FaaSController) ConnectNFs(user string, upNF string, downNF string) error {
 	if _, exists := c.dags[user]; !exists {
-		c.dags[user] = newDAG()
+		return errors.New(fmt.Sprintf("User [%s] has no NFs.", user))
 	}
 
 	return c.dags[user].connectNFs(upNF, downNF)
 }
 
-// Prints all DAGs managed by |FaaSController|.
-func (c *FaaSController) ShowNFDAGs(targetUser string) {
+// Starts running a NF DAG.
+func (c *FaaSController) ActivateDAG(user string) {
 	for user, dag := range c.dags {
-		if user == targetUser || targetUser == "all" {
-			fmt.Printf("[%s] deploys NF DAG:\n", user)
+		if user == user || user == "all" {
+			dag.Activate()
+		}
+	}
+}
+
+// Prints all DAGs managed by |FaaSController|.
+func (c *FaaSController) ShowNFDAGs(user string) {
+	for u, dag := range c.dags {
+		if user == u || user == "all" {
+			fmt.Printf("[%s] deploys NF DAG [actived=%t]:\n", u, dag.isActive)
 
 			// Prints the NF graphs to the terminal.
 			drawCmd := exec.Command("graph-easy")
@@ -160,10 +169,11 @@ func (c *FaaSController) InstanceSetUp(nodeName string, port int, tid int) error
 
 // Called when receiving gRPC request updating traffic info.
 // |qlen| is the NIC rx queue length. |kpps| is the traffic volume.
-func (c *FaaSController) UpdateTrafficInfo(nodeName string, groupId int, qlen int, kpps int) error {
+// Returns error if this controller failed to update traffic info.
+func (c *FaaSController) InstanceUpdateStats(nodeName string, groupId int, qlen int, kpps int) error {
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
 
-	return nil
+	return c.workers[nodeName].updateSGroup(groupId, qlen, kpps)
 }

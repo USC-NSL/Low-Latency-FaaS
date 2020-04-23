@@ -70,8 +70,8 @@ func (w *Worker) String() string {
 		info += fmt.Sprintf("\n  %d %s", coreId, core)
 	}
 	info += "\n Free instances:"
-	for _, instance := range w.freeSGroups {
-		info += fmt.Sprintf("\n  %s", instance)
+	for _, sg := range w.freeSGroups {
+		info += fmt.Sprintf("\n  %s", sg)
 	}
 	return info + "\n"
 }
