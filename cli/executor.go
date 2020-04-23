@@ -128,8 +128,13 @@ func (e *Executor) Execute(s string) {
 		if err := e.FaaSController.ConnectNFs(user, up, down); err != nil {
 			fmt.Println(err)
 		}
+
+		e.FaaSController.ShowNFDAGs(user)
 	} else if words[0] == "show" && len(words) > 1 {
 		user := words[1]
 		e.FaaSController.ShowNFDAGs(user)
+	} else if words[0] == "activate" && len(words) > 1 {
+		user := words[1]
+		e.FaaSController.ActivateDAG(user)
 	}
 }

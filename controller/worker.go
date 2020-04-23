@@ -9,25 +9,27 @@ import (
 	utils "github.com/USC-NSL/Low-Latency-FaaS/utils"
 )
 
-// The abstraction of worker nodes.
+// The abstraction of a worker node.
 // |VSwitchGRPCHandler| and |SchedulerGRPCHandler| are functions
-// to handle gRPC requests to vSwitch and scheduler on the node.
+// to handle gRPC requests to vSwitch and scheduler on the worker.
 // |name| is the name of the node in kubernetes.
 // |ip| is the ip address of the worker node.
 // |vSwitchPort| is BESS gRPC port on host (e.g. FlowGen).
 // |schedulerPort| is Cooperativesched gRCP port on host.
-// |cores| is the abstraction of cores on the node (a mapping from real core number to the core).
+// |cores| maps real core numbers to CPU cores.
+// |sgroups| contains all deployed sgroups on the worker.
 // |freeSGroups| are free sGroups not pinned to any core yet (but in memory).
 // |instancePortPool| manages ports taken by instances on the node.
 // This is to prevent conflicts on host TCP ports.
 // |pciePool| manages pcie port taken by sGroup on the node.
-// |instanceWaitingPool| is a pool for instances to wait for setting up.
+// |instanceWaitingPool| is a pool for instances that are on start-up.
 type Worker struct {
 	grpc.VSwitchGRPCHandler
 	grpc.SchedulerGRPCHandler
 	name                string
 	ip                  string
 	cores               map[int]*Core
+	sgroups             map[int]*SGroup
 	freeSGroups         []*SGroup
 	instancePortPool    *utils.IndexPool
 	pciePool            *utils.IndexPool
@@ -36,10 +38,11 @@ type Worker struct {
 
 func newWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreNumOffset int, coreNum int) *Worker {
 	worker := Worker{
-		name:          name,
-		ip:            ip,
-		cores:         make(map[int]*Core),
-		freeSGroups:   make([]*SGroup, 0),
+		name:        name,
+		ip:          ip,
+		cores:       make(map[int]*Core),
+		sgroups:     make(map[int]*SGroup),
+		freeSGroups: make([]*SGroup, 0),
 		// Ports taken by instances are between [50052, 51051]
 		instancePortPool: utils.NewIndexPool(50052, 1000),
 		pciePool:         utils.NewIndexPool(0, len(PCIeMappings)),
@@ -67,8 +70,8 @@ func (w *Worker) String() string {
 		info += fmt.Sprintf("\n  %d %s", coreId, core)
 	}
 	info += "\n Free instances:"
-	for _, instance := range w.freeSGroups {
-		info += fmt.Sprintf("\n  %s", instance)
+	for _, sg := range w.freeSGroups {
+		info += fmt.Sprintf("\n  %s", sg)
 	}
 	return info + "\n"
 }
@@ -135,9 +138,10 @@ func (w *Worker) createSGroup(funcTypes []string) (*SGroup, error) {
 	for _, instance := range instances {
 		w.SetUpThread(instance.tid)
 	}
-	sGroup := newSGroup(w, instances, pcieIdx)
-	w.freeSGroups = append(w.freeSGroups, sGroup)
-	return sGroup, nil
+	sg := newSGroup(w, instances, pcieIdx)
+	w.freeSGroups = append(w.freeSGroups, sg)
+	w.sgroups[sg.groupId] = sg
+	return sg, nil
 }
 
 // Search and destroy a free sGroup by |groupId| (equal to the tid of its first NF instance).
@@ -189,6 +193,18 @@ func (w *Worker) findAvailableCore() int {
 		}
 	}
 	return -1
+}
+
+// Updates |qlen| and |kpps| for the sgroup with |groupId|.
+// TODO (Jianfeng): trigger extra scaling operations.
+func (w *Worker) updateSGroup(groupId int, qlen int, kpps int) error {
+	if _, exists := w.sgroups[groupId]; !exists {
+		return errors.New(fmt.Sprintf("sgroup %d not found", groupId))
+	}
+
+	w.sgroups[groupId].incQueueLength = qlen
+	w.sgroups[groupId].pktRateKpps = kpps
+	return nil
 }
 
 // Move sGroup with |groupId| from freeSGroups to core |coreId|.

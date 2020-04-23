@@ -11,11 +11,10 @@ service FaaSControl {
 	// so that the controller can set up new instances to serve the flow.
 	rpc UpdateFlow (FlowInfo) returns (FlowTableEntry) {}
 
-    // A running instance updates its real-time statistics, such as
-    // the queue length, and the observed packet rate.
-    rpc InstanceUpdateStats(SgroupStats) returns (EmptyArg) {}
+    // New instances inform their TIDs, which are used by the 
+    // scheduler to enforce scheduling policies.
+    rpc InstanceSetUp (InstanceInfo) returns (Error) {}
 
-	// When a new instance sets up, it will inform the controller about its TID,
-	// which will be used by the scheduler on the machine to schedule the instance.
-	rpc InstanceSetUp (InstanceInfo) returns (Error) {}
+    // Instances update their traffic statistics (qlen, packet rate). 
+    rpc InstanceUpdateStats(TrafficInfo) returns (Error) {}
 }
