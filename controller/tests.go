@@ -2,6 +2,8 @@ package controller
 
 import (
 	"time"
+
+	glog "github.com/golang/glog"
 )
 
 func (c *FaaSController) TestStartNFChain() bool {
@@ -15,31 +17,32 @@ func (c *FaaSController) TestStartNFChain() bool {
 		return false
 	}
 
-	sg = c.workers[node].freeSGroups[n - 1]
+	// Instantiates a |dag| at the SGroup |sg|.
+	sg = c.workers[node].freeSGroups[n-1]
 	w := c.workers[node]
 	w.freeSGroups = w.freeSGroups[:(n - 1)]
 	w.createSGroup(sg, dag)
 
-	start := time.Now().Unix()
-	startDone := false
-	for time.Now().Unix() - start < 6 {
-		if len(sg.instances) == 3 {
-			startDone = true
-			break
-		}
+	start := time.Now()
+	for time.Now().Unix()-start.Unix() < 10 && len(sg.instances) != 3 {
 		time.Sleep(1 * time.Second)
 	}
 
-	if !startDone {
+	if len(sg.instances) != 3 {
 		return false
 	}
 
-	c.workers[node].destroySGroup(sg)
+	elapsed := time.Now().Sub(start)
+	glog.Infof("Time to deploy a NF chain: %s", elapsed.String())
 
+	// Cleanup.
+	c.workers[node].destroySGroup(sg)
 	if len(sg.instances) != 0 {
 		return false
 	}
 
 	c.workers[node].destroyFreeSGroup(sg)
+
+	c.CleanUpAllWorkers()
 	return true
 }
