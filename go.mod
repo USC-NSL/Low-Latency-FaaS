@@ -4,6 +4,7 @@ go 1.13
 
 require (
 	github.com/c-bata/go-prompt v0.2.3
+	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/golang/protobuf v1.3.2
 	github.com/imdario/mergo v0.3.8 // indirect
 	github.com/mattn/go-runewidth v0.0.7 // indirect

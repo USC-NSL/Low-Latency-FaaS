@@ -16,7 +16,7 @@ const (
 )
 
 type Controller interface {
-	UpdateFlow(srcIP string, srcPort uint32, dstIP string, dstPort uint32, protocol uint32) (string, error)
+	UpdateFlow(srcIP string, dstIP string, srcPort uint32, dstPort uint32, proto uint32) (string, error)
 
 	InstanceSetUp(nodeName string, port int, tid int) error
 
@@ -46,7 +46,9 @@ func NewGRPCServer(c Controller) {
 // |flowInfo| is the flow's 5-tuple. FaaSController assigns a active
 // NF chain to process this flow.
 func (s *GRPCServer) UpdateFlow(context context.Context, flowInfo *pb.FlowInfo) (*pb.FlowTableEntry, error) {
-	dmac, err := s.FaaSController.UpdateFlow(flowInfo.Ipv4Src, flowInfo.TcpSport, flowInfo.Ipv4Dst, flowInfo.TcpDport, flowInfo.Ipv4Protocol)
+	dmac, err := s.FaaSController.UpdateFlow(flowInfo.Ipv4Src, flowInfo.Ipv4Dst,
+		flowInfo.TcpSport, flowInfo.TcpDport, flowInfo.Ipv4Protocol)
+
 	if err != nil {
 		fmt.Printf("Error: failed to serve flow: %s\n", err.Error())
 	}

@@ -16,68 +16,79 @@ import (
 // chain to serve this flow. Returns the selected NF chain's unique
 // NIC MAC address.
 // TODO: Complete the reasons for returning errors.
-func (c *FaaSController) UpdateFlow(srcIP string, srcPort uint32,
-	dstIP string, dstPort uint32, protocol uint32) (string, error) {
-	fmt.Println("Get a new flow.")
-	return "00:00:00:00:00:01", nil
-
-	// For a new flow, find out its logical sGroup(sub-chain) divisions.
-	funcTypes := c.sGroupsDivision(srcIP, srcPort, dstIP, dstPort, protocol)
-
-	if sGroup := c.findRunnableSGroup(funcTypes); sGroup != nil {
-		return dmacMappings[sGroup.pcieIdx], nil
+func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
+	srcPort uint32, dstPort uint32, proto uint32) (string, error) {
+	var dag *DAG = nil
+	for _, d := range c.dags {
+		if d.Match(srcIP, dstIP, srcPort, dstPort, proto) {
+			dag = d
+		}
 	}
 
-	if sGroup, coreId := c.findFreeSGroup(funcTypes); sGroup != nil {
-		sGroup.worker.attachSGroup(sGroup.groupId, coreId)
-		return dmacMappings[sGroup.pcieIdx], nil
+	// The flow does not match any activated DAGs. Just ignore it.
+	// TODO(Jianfeng): handle the drop case properly.
+	if dag == nil || (!dag.isActive) {
+		return "None", nil
 	}
 
-	sGroup, coreId, err := c.FindCoreToServeSGroup(funcTypes)
-	if err != nil {
-		return "", err
+	var sg *SGroup = nil
+	// Picks an active SGroup |sg| and assigns the flow to it.
+	if sg = dag.findActiveSGroup(); sg != nil {
+		return dmacMappings[sg.pcieIdx], nil
 	}
-	sGroup.worker.attachSGroup(sGroup.groupId, coreId)
-	// TODO: Packet loss due to busy waiting
-	return dmacMappings[sGroup.pcieIdx], nil
+
+	// No active SGroups. Triggers a scale-up event.
+	// 1. Finds a free SGroup |sg| (NIC queue resource);
+	// 2. Starts to deploy a new DAG with |sg|;
+	// 3. (Optional) Triggers background threads to prepare more SGroups.
+	// 4. Assigns the flow to the selected NIC queue. Even if packets
+	// get queued up at the NIC queue for a while.
+	if sg = c.getFreeSGroup(); sg != nil {
+		go sg.worker.createSGroup(sg, dag)
+		sg.worker.maintainFreeSGroup()
+		return dmacMappings[sg.pcieIdx], nil
+	}
+
+	// All active SGroups are running heavily. No free SGroups
+	// are available. Just drop the packet. (Ideally, we should
+	// never reach here if the cluster has enough resources.)
+	return "None", errors.New(fmt.Sprintf("No enough resources"))
 }
 
-// Give a flow five-tuple information, find out its logical
-// chain divisions.
-func (c *FaaSController) sGroupsDivision(srcIP string, srcPort uint32, dstIP string, dstPort uint32,
-	protocol uint32) []string {
-	return []string{"a", "b", "c"}
+// Selects an active |SGroup| for the logical NF DAG |g|. Picks
+// the one with the lowest traffic load (packet rate).
+func (g *DAG) findActiveSGroup() *SGroup {
+	var selected *SGroup = nil
+	for _, sg := range g.sgroups {
+		if selected == nil {
+			selected = sg
+		} else if selected.pktRateKpps < sg.pktRateKpps {
+			selected = sg
+		}
+	}
+
+	return selected
 }
 
-// Find runnable |sGroup| on a core to place the logical chain with |funcTypes|.
-// If not found, return nil.
-func (c *FaaSController) findRunnableSGroup(funcTypes []string) *SGroup {
+// Finds and returns a free |sGroup| in the cluster. Returns nil
+// if no free sgroup is found.
+func (c *FaaSController) getFreeSGroup() *SGroup {
 	for _, worker := range c.workers {
-		sGroup := worker.findRunnableSGroup(funcTypes)
-		if sGroup != nil {
-			return sGroup
+		if sg := worker.getFreeSGroup(); sg != nil {
+			return sg
 		}
 	}
 	return nil
 }
 
-// Find free |sGroup| in freeSGroups to place the logical chain with |funcTypes|.
-// Also, an available |core| is required on the worker.
-// Return (sGroup, coreId).
-// If not found, return (nil, -1).
-func (c *FaaSController) findFreeSGroup(funcTypes []string) (*SGroup, int) {
-	for _, worker := range c.workers {
-		sGroup := worker.findFreeSGroup(funcTypes)
-		if sGroup != nil {
-			// TODO: Adjust core selection.
-			if coreId := worker.findAvailableCore(); coreId != -1 {
-				return sGroup, coreId
-			}
-		}
+// Maintains the set of |freeSGroups| at worker |w|.
+func (w *Worker) maintainFreeSGroup() {
+	if len(w.freeSGroups) < 2 && w.pciePool.Size() >= 1 {
+		w.op <- FREE_SGROUP
 	}
-	return nil, -1
 }
 
+/*
 // Find available worker to create a new |sGroup|.
 // Return (sGroup, coreId, error).
 // If unavailable to allocate, return (nil, -1, error).
@@ -94,4 +105,20 @@ func (c *FaaSController) FindCoreToServeSGroup(funcTypes []string) (*SGroup, int
 		}
 	}
 	return nil, -1, errors.New(fmt.Sprintf("could not find available worker"))
+}
+*/
+
+// The per-worker NF thread scheduler.
+func (w *Worker) schedule() error {
+	/*
+		// TODO: rewrite the CPU scheduling algorithm.
+		sGroup, coreId, err := c.FindCoreToServeSGroup(funcTypes)
+		if err != nil {
+			return "", err
+		}
+		sGroup.worker.attachSGroup(sGroup.groupId, coreId)
+		// TODO: Packet loss due to busy waiting
+		return dmacMappings[sGroup.pcieIdx], nil
+	*/
+	return nil
 }

@@ -2,6 +2,8 @@ package controller
 
 import (
 	"fmt"
+
+	glog "github.com/golang/glog"
 )
 
 const (
@@ -10,6 +12,8 @@ const (
 )
 
 // The abstraction of minimal scheduling unit at each CPU core.
+// |ingress| manages NIC queues, memory buffers. |groupID| is
+// a global index of |this| SGroup.
 // |instances| are the NF instances belonging to the scheduling group.
 // |QueueLength, QueueCapacity| are the NIC queue information.
 // |pktRateKpps| describes the observed traffic.
@@ -19,7 +23,10 @@ const (
 // |tids| is an array of the tid of every instance in it.
 // Both |groupId| and |pcieIdx| can be used to identify this sgroup.
 type SGroup struct {
+	ingress          *Instance
+	groupId          int
 	instances        []*Instance
+	tids             []int32
 	incQueueLength   int
 	incQueueCapacity int
 	outQueueLength   int
@@ -27,8 +34,6 @@ type SGroup struct {
 	pktRateKpps      int
 	worker           *Worker
 	coreId           int
-	groupId          int
-	tids             []int32
 	pcieIdx          int
 }
 
@@ -68,25 +73,35 @@ var dmacMappings = []string{
 	"00:00:00:00:00:15",
 }
 
-func newSGroup(worker *Worker, instances []*Instance, pcieIdx int) *SGroup {
-	sGroup := SGroup{
-		instances:        make([]*Instance, len(instances)),
+func newSGroup(w *Worker, pcieIdx int) *SGroup {
+	glog.Infof("Create a new SGroup at worker[%s]:pcie[%d]", w.name, pcieIdx)
+	isIngress := "true"
+	isEgress := "false"
+	vPortIncIdx := 0
+	vPortOutIdx := 0
+
+	ins := w.createInstance("none", pcieIdx, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+	// Fail to create the head instance. Cleanup..
+	if ins == nil {
+		return nil
+	}
+	w.SetUpThread(ins.tid)
+
+	sg := SGroup{
+		ingress:          ins,
+		groupId:          ins.tid,
+		instances:        make([]*Instance, 0),
+		tids:             make([]int32, 0),
 		incQueueLength:   0,
 		incQueueCapacity: NIC_RX_QUEUE_LENGTH,
 		outQueueLength:   0,
 		outQueueCapacity: NIC_TX_QUEUE_LENGTH,
 		pktRateKpps:      0,
-		worker:           worker,
+		worker:           w,
 		coreId:           -1,
-		groupId:          instances[0].tid,
-		tids:             make([]int32, len(instances)),
 		pcieIdx:          pcieIdx,
 	}
-	copy(sGroup.instances, instances)
-	for i, instance := range instances {
-		sGroup.tids[i] = int32(instance.tid)
-	}
-	return &sGroup
+	return &sg
 }
 
 func (s *SGroup) String() string {
@@ -99,16 +114,4 @@ func (s *SGroup) String() string {
 		}
 	}
 	return info + fmt.Sprintf("](id=%d, pcie=%s, q=%d, pps=%d kpps)", s.groupId, PCIeMappings[s.pcieIdx], s.incQueueLength, s.pktRateKpps)
-}
-
-func (s *SGroup) match(funcTypes []string) bool {
-	if len(s.instances) != len(funcTypes) {
-		return false
-	}
-	for i, instance := range s.instances {
-		if instance.funcType != funcTypes[i] {
-			return false
-		}
-	}
-	return true
 }

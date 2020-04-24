@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strconv"
 
+	glog "github.com/golang/glog"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -216,7 +216,7 @@ func (k8s *KubeController) CreateDeployment(nodeName string, funcType string, ho
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("Create instance [%s] (pcie=%s,ingress=%s,egress=%s) on %s with port %d successfully.\n",
+	glog.Infof("Create instance [%s] (pcie=%s,ingress=%s,egress=%s) on %s with port %d successfully.\n",
 		funcType, pcie, isIngress, isEgress, nodeName, hostPort)
 	return deployment, nil
 }
