@@ -116,6 +116,7 @@ func (c *FaaSController) ShowNFDAGs(user string) {
 	}
 }
 
+/*
 // Note: Only used for test. Call function FindCoreToServeSGroup to create sGroup instead.
 func (c *FaaSController) CreateSGroup(nodeName string, funcTypes []string) error {
 	if _, exists := c.workers[nodeName]; !exists {
@@ -130,8 +131,9 @@ func (c *FaaSController) DestroySGroup(nodeName string, groupId int) error {
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
-	return c.workers[nodeName].destroySGroup(groupId)
+	return c.workers[nodeName].destroyFreeSGroup(groupId)
 }
+*/
 
 func (c *FaaSController) AttachSGroup(nodeName string, groupId int, coreId int) error {
 	if _, exists := c.workers[nodeName]; !exists {
@@ -149,8 +151,8 @@ func (c *FaaSController) DetachSGroup(nodeName string, groupId int, coreId int) 
 
 // Detach and destroy all sGroups.
 func (c *FaaSController) CleanUpAllWorkers() error {
-	for _, worker := range c.workers {
-		if err := worker.cleanUp(); err != nil {
+	for _, w := range c.workers {
+		if err := w.cleanUp(); err != nil {
 			return err
 		}
 	}

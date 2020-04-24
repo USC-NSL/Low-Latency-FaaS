@@ -69,17 +69,8 @@ func (e *Executor) Execute(s string) {
 			fmt.Printf(e.FaaSController.GetWorkersInfo())
 		}
 	} else if words[0] == "add" && len(words) > 2 {
-		nodeName := words[1]
-		funcTypes := words[2:]
-		if err := e.FaaSController.CreateSGroup(nodeName, funcTypes); err != nil {
-			fmt.Printf("Failed to create %s on %s: %s.\n", funcTypes, nodeName, err.Error())
-		}
+		e.FaaSController.TestStartNFChain()
 	} else if words[0] == "rm" && len(words) > 2 {
-		nodeName := words[1]
-		groupId, _ := strconv.Atoi(words[2])
-		if err := e.FaaSController.DestroySGroup(nodeName, groupId); err != nil {
-			fmt.Printf("Failed to delete sGroup %d on %s: %s.\n", groupId, nodeName, err.Error())
-		}
 	} else if words[0] == "attach" && len(words) > 3 {
 		nodeName := words[1]
 		groupId, _ := strconv.Atoi(words[2])
@@ -110,7 +101,7 @@ func (e *Executor) Execute(s string) {
 		dstIp := words[3]
 		dstPort, _ := strconv.Atoi(words[4])
 		protocol, _ := strconv.Atoi(words[5])
-		if dmac, err := e.FaaSController.UpdateFlow(srcIp, uint32(srcPort), dstIp, uint32(dstPort), uint32(protocol)); err != nil {
+		if dmac, err := e.FaaSController.UpdateFlow(srcIp, dstIp, uint32(srcPort), uint32(dstPort), uint32(protocol)); err != nil {
 			fmt.Printf("Failed to update flow: %s!\n", err.Error())
 		} else {
 			fmt.Printf("Return dmac = %s.", dmac)

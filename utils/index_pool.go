@@ -22,6 +22,10 @@ func NewIndexPool(indexBase int, indexCount int) *IndexPool {
 	return &p
 }
 
+func (p *IndexPool) Size() int {
+	return p.pool.Len()
+}
+
 // Fetch a number from the pool.
 func (p *IndexPool) GetNextAvailable() int {
 	if p.pool.Len() == 0 {

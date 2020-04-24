@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"os"
 
@@ -9,7 +10,20 @@ import (
 	controller "github.com/USC-NSL/Low-Latency-FaaS/controller"
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
 	prompt "github.com/c-bata/go-prompt"
+	glog "github.com/golang/glog"
 )
+
+func init() {
+	flag.Usage = usage
+	flag.Parse()
+}
+
+// By default, |-logtostderr| is false.
+func usage() {
+	fmt.Fprintf(os.Stderr, "usage: example -logtostderr=[true|false] -stderrthreshold=[INFO|WARNING|FATAL] -log_dir=[string]\n")
+	flag.PrintDefaults()
+	os.Exit(2)
+}
 
 func main() {
 	FaaSController := controller.NewFaaSController()
@@ -24,6 +38,7 @@ func main() {
 	)
 
 	p.Run()
+	glog.Flush()
 }
 
 func Prompt() {

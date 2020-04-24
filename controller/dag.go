@@ -6,30 +6,11 @@ import (
 	"strings"
 )
 
-type Flowlet interface {
-	Match(srcIP string, dstIP string, srcPort uint32, dstPort uint32, proto uint32) bool
-}
-
 type NF struct {
 	id       int
 	funcType string
 	prevNFs  []int
 	nextNFs  []int
-}
-
-type flowlet struct {
-	srcIP   string
-	dstIP   string
-	srcPort uint32
-	dstPort uint32
-	proto   uint32
-}
-
-func (f *flowlet) Match(srcIP string, dstIP string, srcPort uint32, dstPort uint32, proto uint32) bool {
-	return (f.srcIP == "" || f.srcIP == srcIP) &&
-		(f.dstIP == "0" || f.dstIP == dstIP) &&
-		(f.srcPort == 0 || f.srcPort == srcPort) &&
-		(f.dstPort == 0 || f.dstPort == dstPort)
 }
 
 // |DAG| is an abstraction of NF DAG deployment specified by
@@ -40,6 +21,7 @@ type DAG struct {
 	NFMap    map[int]*NF
 	flowlets []*flowlet
 	chains   []string
+	sgroups  []*SGroup
 	isActive bool
 }
 
@@ -48,6 +30,7 @@ func newDAG() *DAG {
 		NFMap:    make(map[int]*NF),
 		flowlets: make([]*flowlet, 0),
 		chains:   make([]string, 0),
+		sgroups:  make([]*SGroup, 0),
 		isActive: false,
 	}
 }
