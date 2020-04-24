@@ -110,7 +110,6 @@ func (w *Worker) createInstance(funcType string, pcieIdx int, isIngress string, 
 // Destroys an NF |ins|. Note: this function only gets called
 // when freeing a sGroup.
 func (w *Worker) destroyInstance(ins *Instance) error {
-	fmt.Println(w.name)
 	err := kubectl.K8sHandler.DeleteDeployment(w.name, ins.funcType, ins.port)
 	if err == nil {
 		// Succeed
@@ -124,11 +123,8 @@ func (w *Worker) destroyInstance(ins *Instance) error {
 // containers. It initializes a NIC queue that can buffer packets
 // shortly (at most 4K packets).
 func (w *Worker) createFreeSGroup() (*SGroup, error) {
-	fmt.Println("0")
 	pcieIdx := w.pciePool.GetNextAvailable()
-	fmt.Println("1")
 	sg := newSGroup(w, pcieIdx)
-	fmt.Println("2")
 	if sg == nil {
 		w.pciePool.Free(pcieIdx)
 		return nil, errors.New("Failed to create a free SGroup")
@@ -140,6 +136,16 @@ func (w *Worker) createFreeSGroup() (*SGroup, error) {
 
 // Destroys a SGroup |sg|.
 // Note: Unable to destroy a SGroup which is currently attached to a core.
+func (w *Worker) destroySGroup(sg *SGroup) error {
+	for _, ins := range sg.instances {
+		w.destroyInstance(ins)
+	}
+
+	sg.reset()
+	w.freeSGroups = append(w.freeSGroups, sg)
+	return nil
+}
+
 func (w *Worker) destroyFreeSGroup(sg *SGroup) error {
 	if err := w.destroyInstance(sg.ingress); err != nil {
 		msg := fmt.Sprintf("Worker[%s] failed to remove SGroup[%d]. %s", sg.worker, sg.groupId, err)
@@ -274,11 +280,10 @@ func (w *Worker) cleanUp() error {
 			}
 		}
 	*/
-	fmt.Println(len(w.freeSGroups))
+
 	for len(w.freeSGroups) > 0 {
 		idx := len(w.freeSGroups)
 		sg := w.freeSGroups[idx-1]
-		fmt.Println(idx)
 		if err := w.destroyFreeSGroup(sg); err != nil {
 			return err
 		}

@@ -78,7 +78,7 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, funcType stri
 								},
 								"name":            funcType,
 								"image":           kDockerhubUser + "/nf:latest",
-								"imagePullPolicy": "Always",
+								"imagePullPolicy": "IfNotPresent",
 								"ports": []map[string]interface{}{
 									{
 										// The ports between [50052, 51051] on the host is used

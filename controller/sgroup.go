@@ -115,3 +115,8 @@ func (s *SGroup) String() string {
 	}
 	return info + fmt.Sprintf("](id=%d, pcie=%s, q=%d, pps=%d kpps)", s.groupId, PCIeMappings[s.pcieIdx], s.incQueueLength, s.pktRateKpps)
 }
+
+func (sg *SGroup) reset() {
+	sg.instances = nil
+	sg.tids = nil
+}
