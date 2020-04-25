@@ -15,6 +15,9 @@ all : protos $(PROD)
 fmt :
 	@gofmt -l -s -w .
 
+tests :
+	@go test -v ./...
+
 protos : $(PROTOS_DIR)
 	protoc -I $(PROTOS_DIR) --go_out=plugins=grpc:$(PROTOS_DIR) $(PROTOS_DIR)/*.proto
 
