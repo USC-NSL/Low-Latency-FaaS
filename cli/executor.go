@@ -68,9 +68,6 @@ func (e *Executor) Execute(s string) {
 		} else {
 			fmt.Printf(e.FaaSController.GetWorkersInfo())
 		}
-	} else if words[0] == "add" && len(words) > 2 {
-		e.FaaSController.TestStartNFChain()
-	} else if words[0] == "rm" && len(words) > 2 {
 	} else if words[0] == "attach" && len(words) > 3 {
 		nodeName := words[1]
 		groupId, _ := strconv.Atoi(words[2])

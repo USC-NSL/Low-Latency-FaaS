@@ -70,10 +70,12 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, funcType stri
 									"privileged": true,
 									"runAsUser":  0,
 								},
+								// Hugepage requests equal the limts if 
+								// limits are specified but requests are not.
 								"resources": map[string]interface{}{
 									"limits": map[string]interface{}{
-										"memory":        "1Gi",
-										"hugepages-2Mi": "1Gi",
+										"memory":        "48Mi",
+										"hugepages-2Mi": "48Mi",
 									},
 								},
 								"name":            funcType,

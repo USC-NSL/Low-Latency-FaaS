@@ -9,6 +9,8 @@ import (
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
 )
 
+var runFaaSTest bool
+
 // The controller of the FaaS system for NFV.
 // |ToRGRPCHandler| are functions to handle gRPC requests to the ToR switch.
 // |workers| are all the worker nodes (i.e. physical or virtual machines) in the system.
@@ -17,16 +19,16 @@ import (
 type FaaSController struct {
 	grpc.ToRGRPCHandler
 	workers map[string]*Worker
-	// instances map[string]Instance
 	dags map[string]*DAG
 }
 
 // Creates a new FaaS controller.
-func NewFaaSController() *FaaSController {
+func NewFaaSController(isTest bool) *FaaSController {
 	c := &FaaSController{
 		workers: make(map[string]*Worker),
 		dags:    make(map[string]*DAG),
 	}
+	runFaaSTest = isTest
 
 	// Initializes all worker nodes when starting a |FaaSController|.
 	// Now core 0 is reserved for the scheduler on the machine.

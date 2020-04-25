@@ -49,7 +49,6 @@ func init() {
 			"",
 			"absolute path to the kubeconfig file")
 	}
-	flag.Parse()
 
 	var err error
 	K8sHandler, err = NewKubeController(*kubeConfig, "openfaas-fn")

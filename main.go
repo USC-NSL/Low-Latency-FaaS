@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"testing"
 
 	cli "github.com/USC-NSL/Low-Latency-FaaS/cli"
 	controller "github.com/USC-NSL/Low-Latency-FaaS/controller"
@@ -14,6 +15,7 @@ import (
 )
 
 func init() {
+	testing.Init()
 	flag.Usage = usage
 	flag.Parse()
 }
@@ -26,7 +28,8 @@ func usage() {
 }
 
 func main() {
-	FaaSController := controller.NewFaaSController()
+	isTest := false
+	FaaSController := controller.NewFaaSController(isTest)
 	go grpc.NewGRPCServer(FaaSController)
 	e := cli.NewExecutor(FaaSController)
 
