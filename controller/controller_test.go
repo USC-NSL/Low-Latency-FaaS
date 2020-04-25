@@ -1,28 +1,69 @@
 package controller
 
 import (
+	"os"
 	"time"
 	"testing"
+
+	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
 )
 
 var c *FaaSController = nil
-var isTest bool = true
 
 func TestMain(m *testing.M) {
-	c = NewFaaSController(isTest)
+	c = NewFaaSController(true)
+	// TODO(Jianfeng): set a fixed timeout on the instance startup time.
+	go grpc.NewGRPCServer(c)
 
-	runTests := m.Run()
-	os.Exit(runTests)
+	retVal := m.Run()
+	os.Exit(retVal)
 }
 
-func (c *FaaSController) TestStartNFChain(t *testing.T) bool {
+func TestStartFreeSGroups(t *testing.T) {
+	err := c.CleanUpAllWorkers()
+	if err != nil {
+		t.Errorf("Fail to reset FaaSController")
+	}
+
 	node := "ubuntu"
 	w := c.workers[node]
-	w.createFreeSGroup()
+	go w.CreateFreeSGroups(w.op)
+
+	for i := 0; i < 10; i++ {
+		w.op<-FREE_SGROUP
+	}
 
 	start := time.Now()
-	for time.Now().Unix()-start.Unix() < 10 && len(w.freeSGroups) >= 1 {
-		time.Sleep(100 * time.MilliSecond)
+	for time.Now().Unix()-start.Unix() < 60 && len(w.freeSGroups) != 10 {
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if len(w.freeSGroups) != 10 {
+		t.Errorf("Fail to create enough free SGroups")
+	}
+
+	// Cleanup.
+	w.op<-SHUTDOWN
+	w.cleanUp()
+
+	if len(w.freeSGroups) != 0 {
+		t.Errorf("Fail to clean up all free SGroups")
+	}
+}
+
+func TestStartNFChain(t *testing.T) {
+	err := c.CleanUpAllWorkers()
+	if err != nil {
+		t.Errorf("Fail to reset FaaSController")
+	}
+
+	node := "ubuntu"
+	w := c.workers[node]
+	go w.createFreeSGroup()
+
+	start := time.Now()
+	for time.Now().Unix()-start.Unix() < 20 && len(w.freeSGroups) != 1 {
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	n := len(w.freeSGroups)
@@ -57,5 +98,4 @@ func (c *FaaSController) TestStartNFChain(t *testing.T) bool {
 	}
 
 	w.destroyFreeSGroup(sg)
-	return true
 }

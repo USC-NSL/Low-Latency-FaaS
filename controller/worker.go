@@ -66,7 +66,7 @@ func newWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreN
 		w.cores[i+coreNumOffset] = newCore()
 	}
 
-	if !isTest {
+	if !runFaaSTest {
 		// Starts a background routine for maintaining |freeSGroups|
 		go w.CreateFreeSGroups(w.op)
 	}
