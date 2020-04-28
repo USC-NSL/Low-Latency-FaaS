@@ -136,18 +136,6 @@ func (w *Worker) createFreeSGroup() (*SGroup, error) {
 	return sg, nil
 }
 
-// Destroys a SGroup |sg|.
-// Note: Unable to destroy a SGroup which is currently attached to a core.
-func (w *Worker) destroySGroup(sg *SGroup) error {
-	for _, ins := range sg.instances {
-		w.destroyInstance(ins)
-	}
-
-	sg.reset()
-	w.freeSGroups = append(w.freeSGroups, sg)
-	return nil
-}
-
 func (w *Worker) destroyFreeSGroup(sg *SGroup) error {
 	if err := w.destroyInstance(sg.ingress); err != nil {
 		msg := fmt.Sprintf("Worker[%s] failed to remove SGroup[%d]. %s", sg.worker, sg.groupId, err)
@@ -172,20 +160,19 @@ func (w *Worker) getFreeSGroup() *SGroup {
 	return nil
 }
 
-/*
-// Find runnable |sGroup| on a core to place the logical chain with |funcTypes|.
-// If not found, return nil.
-func (w *Worker) findRunnableSGroup(funcTypes []string) *SGroup {
-	for _, core := range w.cores {
-		for _, sGroup := range core.sGroups {
-			if sGroup.match(funcTypes) {
-				return sGroup
-			}
-		}
+// Destroys a SGroup |sg|.
+// Note: Unable to destroy a SGroup which is currently attached to a core.
+func (w *Worker) destroySGroup(sg *SGroup) error {
+	for _, ins := range sg.instances {
+		w.destroyInstance(ins)
 	}
+
+	sg.reset()
+	w.freeSGroups = append(w.freeSGroups, sg)
 	return nil
 }
 
+/*
 // TODO: Adjust core selection strategy.
 func (w *Worker) findAvailableCore() int {
 	for coreId, core := range w.cores {
@@ -231,8 +218,8 @@ func (w *Worker) attachSGroup(groupId int, coreId int) error {
 	// Send gRPC to inform scheduler.
 	if status, err := w.AttachChain(sGroup.tids, coreId); err != nil {
 		return err
-	} else if status.GetError() != 0 {
-		return errors.New(fmt.Sprintf("error from gRPC request AttachChain: %s", status.GetMessage()))
+	} else if status.GetCode() != 0 {
+		return errors.New(fmt.Sprintf("error from gRPC request AttachChain: %s", status.GetErrmsg()))
 	}
 	return nil
 }
@@ -263,8 +250,8 @@ func (w *Worker) detachSGroup(groupId int, coreId int) error {
 	// Send gRPC to inform scheduler.
 	if status, err := w.DetachChain(sGroup.tids, coreId); err != nil {
 		return err
-	} else if status.GetError() != 0 {
-		return errors.New(fmt.Sprintf("error from gRPC request DetachChain: %s", status.GetMessage()))
+	} else if status.GetCode() != 0 {
+		return errors.New(fmt.Sprintf("error from gRPC request DetachChain: %s", status.GetErrmsg()))
 	}
 	return nil
 }

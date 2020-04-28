@@ -85,7 +85,6 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 	if ins == nil {
 		return nil
 	}
-	w.SetUpThread(ins.tid)
 
 	sg := SGroup{
 		ingress:          ins,

@@ -99,3 +99,8 @@ func TestStartNFChain(t *testing.T) {
 
 	w.destroyFreeSGroup(sg)
 }
+
+// Tests for 
+func TestAttachAndDetachNFChain(t *testing.T) {
+
+}

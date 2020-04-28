@@ -11,6 +11,15 @@ message Error {
   string errmsg = 2;
 }
 
+message EmptyRequest {
+}
+
+message EmptyResponse {
+  // Contains a non-zero error code and a non-empty message
+  // if and only if there has been an error
+  Error error = 1;
+}
+
 message EmptyArg {}
 
 message CommandRequest {
@@ -77,7 +86,6 @@ message FlowGenArg {
   uint32 port_dst_range = 11; /// When generating new flows, FlowGen modifies the template packet by changing the TCP dst port, incrementing it by at most port_dst_range.
 }
 
-
 message FlowInfo {
     string ipv4_src = 1;
     string ipv4_dst = 2;
@@ -121,13 +129,12 @@ message TrafficInfo {
   int32 port = 4;
 }
 
-message Status {
-    int32 error = 1;
-    string message = 2;
+message SetupChainArg {
+    repeated int32 chain = 1;
 }
 
-message SetUpThreadArg {
-    int32 tid = 1;
+message RemoveChainArg {
+    repeated int32 chain = 1;
 }
 
 message AttachChainArg {
@@ -135,13 +142,12 @@ message AttachChainArg {
     int32 core = 2;
 }
 
-message MigrateChainArg {
-    repeated int32 chain = 1;
-    int32 core_from = 2;
-    int32 core_to = 3;
-}
-
 message DetachChainArg {
     repeated int32 chain = 1;
     int32 core = 2;
+}
+
+message Stats {
+    int32 arrival_rate = 1;
+    int32 service_time = 2;
 }

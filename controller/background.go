@@ -80,9 +80,7 @@ func (w *Worker) createSGroup(sg *SGroup, dag *DAG) {
 	}
 
 	// Sends gRPC request to inform the scheduler.
-	for _, instance := range sg.instances {
-		w.SetUpThread(instance.tid)
-	}
+	w.SetupChain(sg.tids)
 
 	// Adds |sg| to |w|'s active |sgroups|, and |dag|'s
 	// active |sgroups|.
