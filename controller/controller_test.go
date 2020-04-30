@@ -16,8 +16,8 @@ func TestMain(m *testing.M) {
 	// TODO(Jianfeng): set a fixed timeout on the instance startup time.
 	go grpc.NewGRPCServer(c)
 
-	retVal := m.Run()
-	os.Exit(retVal)
+	ret := m.Run()
+	os.Exit(ret)
 }
 
 func TestStartFreeSGroups(t *testing.T) {

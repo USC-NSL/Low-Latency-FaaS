@@ -1,13 +1,23 @@
 package utils
 
-type MinHeap []int
+type MinHeap struct {
+	nums []int
+}
 
-func (h MinHeap) Len() int           { return len(h) }
-func (h MinHeap) Less(i, j int) bool { return h[i] < h[j] }
-func (h MinHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h MinHeap) Contain(target int) bool {
-	for i := 0; i < len(h); i++ {
-		if h[i] == target {
+func NewMinHeap() *MinHeap {
+	return &MinHeap{
+		nums: make([]int, 0),
+	}
+}
+
+func (h MinHeap) Len() int           { return len(h.nums) }
+func (h MinHeap) Size() int          { return len(h.nums) }
+func (h MinHeap) Less(i, j int) bool { return h.nums[i] < h.nums[j] }
+func (h MinHeap) Swap(i, j int)      { h.nums[i], h.nums[j] = h.nums[j], h.nums[i] }
+
+func (h MinHeap) Contain(t int) bool {
+	for i := 0; i < h.Len(); i++ {
+		if h.nums[i] == t {
 			return true
 		}
 	}
@@ -17,14 +27,14 @@ func (h MinHeap) Contain(target int) bool {
 // Push/Pop use pointer receivers because they modify the slice length.
 // Adds x as element Len().
 func (h *MinHeap) Push(x interface{}) {
-	*h = append(*h, x.(int))
+	h.nums = append(h.nums, x.(int))
 }
 
 // Removes and returns element Len() - 1.
 func (h *MinHeap) Pop() interface{} {
-	old := *h
+	old := h.nums
 	n := len(old)
 	x := old[n-1]
-	*h = old[0 : n-1]
+	h.nums = old[0:(n - 1)]
 	return x
 }
