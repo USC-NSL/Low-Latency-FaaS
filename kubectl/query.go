@@ -75,15 +75,26 @@ func (k8s *KubeController) GetPodByLabel(nodeName string, funcType string, hostP
 	return corev1.Pod{}, false
 }
 
-// Query a pod in kubernetes with its label "nodeName-funcType-hostPort", which is the same with its deployment name.
+// Checks and returns the pod's status with its label "deployName".
 // Note: No need to call function FetchPods before.
-func (k8s *KubeController) QueryPodByLabel(nodeName string, funcType string, hostPort int) (*corev1.PodList, error) {
-	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, funcType, strconv.Itoa(hostPort))
-	labelsMapping := map[string]string{"app": deploymentName}
+func (k8s *KubeController) GetPodStatusByName(deployName string) string {
+	labelsMapping := map[string]string{"app": deployName}
 	set := labels.Set(labelsMapping)
+	// pod, _ := clientset.CoreV1().Pods(k8s.namespace).Get(pod.Name, metav1.GetOptions{LabelSelector: set.AsSelector().String()})
+	pods, _ := k8s.client.CoreV1().Pods(k8s.namespace).List(metav1.ListOptions{LabelSelector: set.AsSelector().String()})
 
-	pods, err := k8s.client.CoreV1().Pods(k8s.namespace).List(metav1.ListOptions{LabelSelector: set.AsSelector().String()})
-	return pods, err
+	status := "NotExist" 
+	for _, pod := range pods.Items {
+		if pod.DeletionTimestamp != nil {
+			status = "Terminating"
+		} else if pod.Status.ContainerStatuses[0].State.Running != nil {
+			status = "Running"
+		} else if pod.Status.ContainerStatuses[0].State.Terminated != nil {
+			status = "Terminating"
+		} 
+	}
+
+	return status
 }
 
 func (k8s *KubeController) FetchDeployments() {

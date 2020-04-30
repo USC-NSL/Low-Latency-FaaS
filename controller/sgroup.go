@@ -7,24 +7,25 @@ import (
 )
 
 const (
-	NIC_RX_QUEUE_LENGTH = 2048
-	NIC_TX_QUEUE_LENGTH = 2048
+	NIC_RX_QUEUE_LENGTH = 4096
+	NIC_TX_QUEUE_LENGTH = 4096
 )
 
 // The abstraction of minimal scheduling unit at each CPU core.
-// |ingress| manages NIC queues, memory buffers. |groupID| is
+// Both |groupId| and |pcieIdx| can be identify this sgroup.
+// |manager| manages NIC queues, memory buffers. |groupID| is
 // a global index of |this| SGroup.
-// |instances| are the NF instances belonging to the scheduling group.
+// |instances| are NF instances within the scheduling group.
 // |QueueLength, QueueCapacity| are the NIC queue information.
 // |pktRateKpps| describes the observed traffic.
 // |worker| is the worker node that the sGroup attached to. Set -1 when not attached.
 // |coreId| is the core that the sGroup scheduled to.
 // |groupId| is the unique identifier of the sGroup on a worker. Technically, it is equal to the tid of its first NF instance.
 // |tids| is an array of the tid of every instance in it.
-// Both |groupId| and |pcieIdx| can be used to identify this sgroup.
 type SGroup struct {
-	ingress          *Instance
+	manager          *Instance
 	groupId          int
+	pcieIdx          int
 	instances        []*Instance
 	tids             []int32
 	incQueueLength   int
@@ -34,7 +35,6 @@ type SGroup struct {
 	pktRateKpps      int
 	worker           *Worker
 	coreId           int
-	pcieIdx          int
 }
 
 var PCIeMappings = []string{
@@ -75,20 +75,21 @@ var dmacMappings = []string{
 
 func newSGroup(w *Worker, pcieIdx int) *SGroup {
 	glog.Infof("Create a new SGroup at worker[%s]:pcie[%d]", w.name, pcieIdx)
-	isIngress := "true"
+	isPrimary := "true"
+	isIngress := "false"
 	isEgress := "false"
 	vPortIncIdx := 0
 	vPortOutIdx := 0
 
-	ins := w.createInstance("none", pcieIdx, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+	ins := w.createInstance("prim", pcieIdx, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 	// Fail to create the head instance. Cleanup..
 	if ins == nil {
 		return nil
 	}
 
 	sg := SGroup{
-		ingress:          ins,
-		groupId:          ins.tid,
+		manager:          ins,
+		groupId:          ins.ID(),
 		instances:        make([]*Instance, 0),
 		tids:             make([]int32, 0),
 		incQueueLength:   0,

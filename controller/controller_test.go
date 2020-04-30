@@ -2,6 +2,7 @@ package controller
 
 import (
 	"os"
+	"sync"
 	"time"
 	"testing"
 
@@ -29,16 +30,17 @@ func TestStartFreeSGroups(t *testing.T) {
 	w := c.workers[node]
 	go w.CreateFreeSGroups(w.op)
 
-	for i := 0; i < 10; i++ {
+	countSGroups := 10
+	for i := 0; i < countSGroups; i++ {
 		w.op<-FREE_SGROUP
 	}
 
 	start := time.Now()
-	for time.Now().Unix()-start.Unix() < 60 && len(w.freeSGroups) != 10 {
+	for time.Now().Unix()-start.Unix() < 60 && len(w.freeSGroups) != countSGroups {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	if len(w.freeSGroups) != 10 {
+	if len(w.freeSGroups) != countSGroups {
 		t.Errorf("Fail to create enough free SGroups")
 	}
 
@@ -97,7 +99,9 @@ func TestStartNFChain(t *testing.T) {
 		t.Errorf("fail")
 	}
 
-	w.destroyFreeSGroup(sg)
+	var wg sync.WaitGroup
+	go w.destroyFreeSGroup(sg, wg)
+	wg.Wait()
 }
 
 // Tests for 
