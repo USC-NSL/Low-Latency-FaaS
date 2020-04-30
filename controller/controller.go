@@ -19,7 +19,7 @@ var runFaaSTest bool
 type FaaSController struct {
 	grpc.ToRGRPCHandler
 	workers map[string]*Worker
-	dags map[string]*DAG
+	dags    map[string]*DAG
 }
 
 // Creates a new FaaS controller.
@@ -167,7 +167,7 @@ func (c *FaaSController) InstanceSetUp(nodeName string, port int, tid int) error
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
-	c.workers[nodeName].instanceWaitingPool.remove(port, tid)
+	c.workers[nodeName].insStartupPool.remove(port, tid)
 	return nil
 }
 

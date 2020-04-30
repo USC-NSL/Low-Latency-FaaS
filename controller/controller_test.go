@@ -3,8 +3,8 @@ package controller
 import (
 	"os"
 	"sync"
-	"time"
 	"testing"
+	"time"
 
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
 )
@@ -32,7 +32,7 @@ func TestStartFreeSGroups(t *testing.T) {
 
 	countSGroups := 10
 	for i := 0; i < countSGroups; i++ {
-		w.op<-FREE_SGROUP
+		w.op <- FREE_SGROUP
 	}
 
 	start := time.Now()
@@ -45,7 +45,7 @@ func TestStartFreeSGroups(t *testing.T) {
 	}
 
 	// Cleanup.
-	w.op<-SHUTDOWN
+	w.op <- SHUTDOWN
 	w.cleanUp()
 
 	if len(w.freeSGroups) != 0 {
@@ -104,7 +104,7 @@ func TestStartNFChain(t *testing.T) {
 	wg.Wait()
 }
 
-// Tests for 
+// Tests for
 func TestAttachAndDetachNFChain(t *testing.T) {
 
 }

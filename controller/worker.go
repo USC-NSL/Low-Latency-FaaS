@@ -25,31 +25,32 @@ import (
 // |instancePortPool| manages ports taken by instances on the node.
 // This is to prevent conflicts on host TCP ports.
 // |pciePool| manages pcie port taken by sGroup on the node.
-// |instanceWaitingPool| is a pool for instances that are on start-up.
+// |insStartupPool| is a pool for instances that are on start-up.
 type Worker struct {
 	grpc.VSwitchGRPCHandler
 	grpc.SchedulerGRPCHandler
-	name                string
-	ip                  string
-	cores               map[int]*Core
-	sgroups             map[int]*SGroup
-	freeSGroups         []*SGroup
-	instancePortPool    *utils.IndexPool
-	pciePool            *utils.IndexPool
-	instanceWaitingPool InstanceWaitingPool
-	op                  chan FaaSOP
+	name             string
+	ip               string
+	cores            map[int]*Core
+	sgroups          map[int]*SGroup
+	freeSGroups      []*SGroup
+	instancePortPool *utils.IndexPool
+	pciePool         *utils.IndexPool
+	insStartupPool   *InstanceStartupPool
+	op               chan FaaSOP
 }
 
 func newWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreNumOffset int, coreNum int) *Worker {
+	// Ports taken by instances are between [50052, 51051]
 	w := Worker{
-		name:        name,
-		ip:          ip,
-		cores:       make(map[int]*Core),
-		sgroups:     make(map[int]*SGroup),
-		freeSGroups: make([]*SGroup, 0),
-		// Ports taken by instances are between [50052, 51051]
+		name:             name,
+		ip:               ip,
+		cores:            make(map[int]*Core),
+		sgroups:          make(map[int]*SGroup),
+		freeSGroups:      make([]*SGroup, 0),
 		instancePortPool: utils.NewIndexPool(50052, 1000),
 		pciePool:         utils.NewIndexPool(0, len(PCIeMappings)),
+		insStartupPool:   NewInstanceStartupPool(),
 		op:               make(chan FaaSOP, 64),
 	}
 
@@ -90,8 +91,8 @@ func (w *Worker) String() string {
 	return info + "\n"
 }
 
-// Creates an NF instance with type |funcType|. Waits for |tid|
-// sent from the instance.
+// Creates an NF instance |ins| with type |funcType|. Waits for
+// |tid| sent from the instance.
 func (w *Worker) createInstance(funcType string, pcieIdx int, isPrimary string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) *Instance {
 	port := w.instancePortPool.GetNextAvailable()
 	podName, err := kubectl.K8sHandler.CreateDeployment(w.name, funcType, port, PCIeMappings[pcieIdx], isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
@@ -102,13 +103,13 @@ func (w *Worker) createInstance(funcType string, pcieIdx int, isPrimary string, 
 	}
 
 	// Succeed
-	instance := newInstance(funcType, w.ip, port, podName)
+	ins := newInstance(funcType, w.ip, port, podName)
 	if isPrimary != "true" {
-		w.instanceWaitingPool.add(instance)
-		instance.waitTid()
+		w.insStartupPool.add(ins)
+		ins.waitTid()
 	}
 
-	return instance
+	return ins
 }
 
 // Destroys an NF |ins|. Note: this function only gets called
@@ -126,7 +127,7 @@ func (w *Worker) destroyInstance(ins *Instance) error {
 func (w *Worker) createAllFreeSGroups() {
 	//for i := 0; i < w.pciePool.Size(); i++ {
 	for i := 0; i < 1; i++ {
-		w.op<-FREE_SGROUP
+		w.op <- FREE_SGROUP
 	}
 }
 
@@ -136,7 +137,7 @@ func (w *Worker) destroyAllFreeSGroups() {
 
 	for len(w.freeSGroups) > 0 {
 		idx := len(w.freeSGroups)
-		sg := w.freeSGroups[idx - 1]
+		sg := w.freeSGroups[idx-1]
 		w.freeSGroups = w.freeSGroups[:(idx - 1)]
 
 		go w.destroyFreeSGroup(sg, &wg)

@@ -2,11 +2,11 @@ package controller
 
 import (
 	"fmt"
-	"time"
 	"sync"
+	"time"
 
-	glog "github.com/golang/glog"
 	kubectl "github.com/USC-NSL/Low-Latency-FaaS/kubectl"
+	glog "github.com/golang/glog"
 )
 
 // This is the place to implement FaaSController go routines
@@ -55,7 +55,7 @@ func (w *Worker) CreateFreeSGroups(op chan FaaSOP) {
 }
 
 // Go-routine function for creating a FreeSgroup.
-// Creates and returns a free SGroup |sg|. |sg| initializes a NIC 
+// Creates and returns a free SGroup |sg|. |sg| initializes a NIC
 // queue (at most 4K packets) which can be used by a NF chain later.
 // Blocked until the pod is running.
 func (w *Worker) createFreeSGroup() *SGroup {
@@ -80,7 +80,7 @@ func (w *Worker) createFreeSGroup() *SGroup {
 	return sg
 }
 
-// Go-routine function for deleting a FreeSGroup. 
+// Go-routine function for deleting a FreeSGroup.
 // Deletes a free SGroup |sg|. Blocked until the pod is deleted.
 func (w *Worker) destroyFreeSGroup(sg *SGroup, wg *sync.WaitGroup) {
 	defer wg.Done()
