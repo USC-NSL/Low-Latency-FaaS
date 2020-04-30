@@ -2,6 +2,8 @@ package utils
 
 import (
 	"os"
+	"sync"
+	"sort"
 	"time"
 	"reflect"
 	"testing"
@@ -93,10 +95,16 @@ func TestIndexPoolMultiThread(t *testing.T) {
 	base := 100
 	numCount := 10000
 	pool := NewIndexPool(base, numCount)
+	var mu = &sync.Mutex{}
+	nums := []int{}
 
 	for i := 0; i < numCount / 2; i++ {
 		go func() {
-			pool.GetNextAvailable()
+			num := pool.GetNextAvailable()
+			mu.Lock()
+			defer mu.Unlock()
+
+			nums = append(nums, num)
 		}()
 	}
 	time.Sleep(500 * time.Millisecond)
@@ -107,13 +115,24 @@ func TestIndexPoolMultiThread(t *testing.T) {
 
 	for i := 0; i < numCount / 2; i++ {
 		go func() {
-			pool.GetNextAvailable()
+			num := pool.GetNextAvailable()
+			mu.Lock()
+			defer mu.Unlock()
+
+			nums = append(nums, num)
 		}()
 	}
 	time.Sleep(500 * time.Millisecond)
 
-	if pool.Size() != 0 {
+	if pool.Size() != 0 || len(nums) != numCount {
 		t.Errorf("Failed to pop enough numbers")
+	}
+
+	sort.Ints(nums)
+	for i, num := range nums {
+		if num != base + i {
+			t.Errorf("Failed to pop %d. Poped %d", base + i, num)
+		}
 	}
 
 	for i := 0; i < numCount / 2; i++ {
