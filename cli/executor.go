@@ -68,6 +68,16 @@ func (e *Executor) Execute(s string) {
 		} else {
 			fmt.Printf(e.FaaSController.GetWorkersInfo())
 		}
+	} else if words[0] == "add" && len(words) > 3 {
+		nodeName := words[1]
+		nfs := words[2:]
+
+		e.FaaSController.CreateSGroup(nodeName, nfs)
+	} else if words[0] == "rm" && len(words) > 2 {
+		nodeName := words[1]
+		groupID, _ := strconv.Atoi(words[2])
+
+		e.FaaSController.DestroySGroup(nodeName, groupID)
 	} else if words[0] == "attach" && len(words) > 3 {
 		nodeName := words[1]
 		groupId, _ := strconv.Atoi(words[2])
@@ -78,9 +88,9 @@ func (e *Executor) Execute(s string) {
 	} else if words[0] == "detach" && len(words) > 3 {
 		nodeName := words[1]
 		groupId, _ := strconv.Atoi(words[2])
-		coreId, _ := strconv.Atoi(words[3])
-		if err := e.FaaSController.DetachSGroup(nodeName, groupId, coreId); err != nil {
-			fmt.Printf("Failed to detach sGroup (id=%d) on core %d of worker %s: %s!\n", groupId, coreId, nodeName, err.Error())
+
+		if err := e.FaaSController.DetachSGroup(nodeName, groupId); err != nil {
+			fmt.Printf("Failed to detach sGroup (id=%d) on worker %s: %s!\n", groupId, nodeName, err.Error())
 		}
 	} else if words[0] == "kubectl" && len(words) > 2 {
 		command := words[1]

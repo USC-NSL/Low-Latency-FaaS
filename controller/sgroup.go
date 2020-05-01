@@ -141,8 +141,15 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 	}
 
 	if ready {
-		glog.Infof("SGroup[%d] is ready. Notify the scheduler", sg.ID())
+		for _, ins := range sg.instances {
+			sg.tids = append(sg.tids, int32(ins.tid))
+		}
+
 		// Sends gRPC request to inform the scheduler.
-		// w.SetupChain(sg.tids)
+		glog.Infof("SGroup[%d] is ready. Notify the scheduler", sg.ID())
+		_, err := sg.worker.SetupChain(sg.tids)
+		if err != nil {
+			glog.Errorf("Failed to notify the scheduler. %s", err)
+		}
 	}
 }

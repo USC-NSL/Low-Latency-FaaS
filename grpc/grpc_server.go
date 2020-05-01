@@ -6,8 +6,8 @@ import (
 	"net"
 
 	pb "github.com/USC-NSL/Low-Latency-FaaS/proto"
-
 	grpc "google.golang.org/grpc"
+	glog "github.com/golang/glog"
 )
 
 const (
@@ -38,7 +38,7 @@ func NewGRPCServer(c Controller) {
 	pb.RegisterFaaSControlServer(s, &GRPCServer{FaaSController: c})
 
 	if err := s.Serve(listen); err != nil {
-		fmt.Printf("Error: failed to start FaaS Server: %v\n", err)
+		glog.Errorf("Failed to start FaaS Server: %v\n", err)
 	}
 }
 
@@ -50,11 +50,13 @@ func (s *GRPCServer) UpdateFlow(context context.Context, flowInfo *pb.FlowInfo) 
 		flowInfo.TcpSport, flowInfo.TcpDport, flowInfo.Ipv4Protocol)
 
 	if err != nil {
-		fmt.Printf("Error: failed to serve flow: %s\n", err.Error())
+		glog.Errorf("Failed to serve flow: %v", err)
+		// TODO(Jianfeng): handle errors.
 	}
-	// TODO: Assign a switch port number to each worker.
-	response := &pb.FlowTableEntry{SwitchPort: 20, Dmac: dmac}
-	return response, err
+
+	// TODO(Jianfeng): assign a switch port number to each worker.
+	res := &pb.FlowTableEntry{SwitchPort: 20, Dmac: dmac}
+	return res, err
 }
 
 // When a new instance sets up, it will inform the controller about its TID,
@@ -63,7 +65,8 @@ func (s *GRPCServer) InstanceSetUp(context context.Context, instanceInfo *pb.Ins
 	nodeName := instanceInfo.GetNodeName()
 	port := int(instanceInfo.GetPort())
 	tid := int(instanceInfo.GetTid())
-	fmt.Printf("Called by %s:%d (tid=%d).\n", nodeName, port, tid)
+	glog.Infof("Set up Instance [w=%s, port=%d, tid=%d]\n", nodeName, port, tid)
+
 	if err := s.FaaSController.InstanceSetUp(nodeName, port, tid); err != nil {
 		return &pb.Error{Code: 1, Errmsg: err.Error()}, err
 	}
