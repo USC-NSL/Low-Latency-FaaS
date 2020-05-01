@@ -6,15 +6,18 @@ import "message.proto";
 package bess.pb;
 
 service SchedulerControl {
+    rpc UpdateStats(Stats) returns (EmptyResponse) {}
+
     // Set up a thread in the free threads pool on the machine, but not schedule it.
-    rpc SetUpThread(SetUpThreadArg) returns (Status) {}
+    rpc SetupChain(SetupChainArg) returns (Error) {}
 
-    // Remove the chain (a group of threads) from free threads pool and schedule it on a core.
-    rpc AttachChain(AttachChainArg) returns (Status) {}
+    rpc RemoveChain(RemoveChainArg) returns (Error) {}
 
-    // Migrate the chain from a core to another core.
-    rpc MigrateChain(MigrateChainArg) returns (Status) {}
+    // Schedules a chain on a core.
+    rpc AttachChain(AttachChainArg) returns (Error) {}
 
-    // Remove the chain from a core and put it back to the free threads pool.
-    rpc DetachChain(DetachChainArg) returns (Status) {}
+    // Detaches a chain on a core.
+    rpc DetachChain(DetachChainArg) returns (Error) {}
+
+    rpc KillSched(EmptyRequest) returns (EmptyResponse) {}
 }

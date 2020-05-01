@@ -19,10 +19,9 @@ import (
 // |client| is API used for finding resources.
 // |dynamicClient| is API for managing deployments.
 type KubeController struct {
-	namespace     string
-	client        *kubernetes.Clientset
-	dynamicClient dynamic.Interface
-
+	namespace      string
+	client         *kubernetes.Clientset
+	dynamicClient  dynamic.Interface
 	deploymentList *sync.Map
 	nodeList       atomic.Value
 	podList        *sync.Map

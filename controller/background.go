@@ -2,7 +2,10 @@ package controller
 
 import (
 	"fmt"
+	"sync"
+	"time"
 
+	kubectl "github.com/USC-NSL/Low-Latency-FaaS/kubectl"
 	glog "github.com/golang/glog"
 )
 
@@ -42,7 +45,7 @@ func (w *Worker) CreateFreeSGroups(op chan FaaSOP) {
 
 		if msg == FREE_SGROUP {
 			// TODO(Jianfeng): handle errors.
-			w.createFreeSGroup()
+			go w.createFreeSGroup()
 		}
 
 		if msg == SHUTDOWN {
@@ -51,7 +54,55 @@ func (w *Worker) CreateFreeSGroups(op chan FaaSOP) {
 	}
 }
 
-// Go-routine function when setting up an NF DAG.
+// Go-routine function for creating a FreeSgroup.
+// Creates and returns a free SGroup |sg|. |sg| initializes a NIC
+// queue (at most 4K packets) which can be used by a NF chain later.
+// Blocked until the pod is running.
+func (w *Worker) createFreeSGroup() *SGroup {
+	pcieIdx := w.pciePool.GetNextAvailable()
+	sg := newSGroup(w, pcieIdx)
+	if sg == nil {
+		w.pciePool.Free(pcieIdx)
+		return nil
+	}
+
+	start := time.Now()
+	for time.Now().Unix()-start.Unix() < 20 {
+		status := kubectl.K8sHandler.GetPodStatusByName(sg.manager.podName)
+		if status == "Running" {
+			// Succeeded.
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	w.freeSGroups = append(w.freeSGroups, sg)
+	return sg
+}
+
+// Go-routine function for deleting a FreeSGroup.
+// Deletes a free SGroup |sg|. Blocked until the pod is deleted.
+func (w *Worker) destroyFreeSGroup(sg *SGroup, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	if err := w.destroyInstance(sg.manager); err != nil {
+		glog.Errorf("Worker[%s] failed to remove SGroup[%d]. %s", sg.worker, sg.ID(), err)
+		return
+	}
+
+	start := time.Now()
+	for time.Now().Unix()-start.Unix() < 20 {
+		status := kubectl.K8sHandler.GetPodStatusByName(sg.manager.podName)
+		if status == "NotExist" {
+			// Deleted.
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	w.pciePool.Free(sg.pcieIdx)
+}
+
 // Scales up the NF |dag| by creating all related NF containers. Also
 // sends a gRPC request to register all NF threads at the |w|'s
 // CooperativeSched. |sg| is updated after this function finishes.
@@ -61,14 +112,16 @@ func (w *Worker) createSGroup(sg *SGroup, dag *DAG) {
 	for i, funcType := range dag.chains {
 		isIngress := "false"
 		isEgress := "false"
-		if i == len(dag.chains)-1 {
+		if i == 0 {
+			isIngress = "true"
+		} else if i == len(dag.chains)-1 {
 			isEgress = "true"
 		}
 		vPortIncIdx, vPortOutIdx := i, i+1
 
-		ins := w.createInstance(funcType, pcieIdx, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
-		if ins == nil {
-			glog.Errorf("Failed to create nf[%s]\n", funcType)
+		ins, err := w.createInstance(funcType, pcieIdx, "false", isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+		if err != nil {
+			glog.Errorf("Failed to create nf[%s]. %s\n", funcType, err)
 			// Cleanup..
 			for _, instance := range sg.instances {
 				w.destroyInstance(instance)
@@ -79,13 +132,8 @@ func (w *Worker) createSGroup(sg *SGroup, dag *DAG) {
 		sg.instances = append(sg.instances, ins)
 	}
 
-	// Sends gRPC request to inform the scheduler.
-	for _, instance := range sg.instances {
-		w.SetUpThread(instance.tid)
-	}
-
 	// Adds |sg| to |w|'s active |sgroups|, and |dag|'s
 	// active |sgroups|.
-	w.sgroups[sg.groupId] = sg
+	w.sgroups[sg.ID()] = sg
 	dag.sgroups = append(dag.sgroups, sg)
 }

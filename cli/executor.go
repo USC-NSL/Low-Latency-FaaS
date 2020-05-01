@@ -86,7 +86,7 @@ func (e *Executor) Execute(s string) {
 		command := words[1]
 		deploymentName := words[2]
 		if command == "rm" {
-			if err := kubectl.K8sHandler.DeleteDeploymentByName(deploymentName); err != nil {
+			if err := kubectl.K8sHandler.DeleteDeployment(deploymentName); err != nil {
 				fmt.Printf("Failed to remove deployment %s: %s.\n", deploymentName, err.Error())
 			} else {
 				fmt.Printf("Remove deployment %s successfully!\n", deploymentName)

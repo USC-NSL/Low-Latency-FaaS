@@ -12,80 +12,64 @@ import (
 const kUninitializedTid int = -1
 
 // The abstraction of NF instance.
-// |InstanceGRPCHandler| are functions to handle gRPC requests to the instance.
-// |funcType| is the type of NF inside the instance.
-// |port| is the port of the gRPC server on the instance. It is thought as the unique id for an instance in the worker.
-// |address| is the full address (ip:port) of the gRPC server on the instance.
-// |tid| is the Tid of the instance in the worker.
+// |InstanceGRPCHandler| are functions that handle gRPC requests sent
+// to instances.
+// |funcType| is the NF type of the instance.
+// |port| is the gRPC server's TCP port on the instance. It is also
+// an unique id for the instance.
+// |address| is the ip:port address of the gRPC server.
+// |tid| is the thread ID of the instance.
+// |podName| is the Pod's deployment name in Kubernetes.
+// |groupID| is the SGroup's ID.
 // |cond| is the conditional variable used for tid initialization.
 type Instance struct {
 	grpc.InstanceGRPCHandler
 	funcType string
 	port     int
 	address  string
+	podName  string
+	sg       *SGroup
 	tid      int
 	cond     *sync.Cond
 }
 
-func newInstance(funcType string, hostIp string, port int) *Instance {
+func newInstance(funcType string, hostIp string, port int, podName string) *Instance {
 	instance := Instance{
 		funcType: funcType,
 		port:     port,
 		address:  hostIp + ":" + strconv.Itoa(port),
+		podName:  podName,
 		tid:      kUninitializedTid,
 		cond:     sync.NewCond(&sync.Mutex{}),
 	}
 	return &instance
 }
 
-func (instance *Instance) String() string {
-	return fmt.Sprintf("%s(port=%d,tid=%d)", instance.funcType, instance.port, instance.tid)
+func (ins *Instance) String() string {
+	return fmt.Sprintf("%s[port=%d, tid=%d]", ins.funcType, ins.port, ins.tid)
 }
 
-// When a instance is created, it will wait for the TID information sent through gRPC requests.
+func (ins *Instance) ID() int {
+	return ins.port
+}
+
+// An NF instance |ins| will wait for its |tid| sent from the NF
+// thread inside the container, when the instance is created.
 // Implemented based on conditional variable |cond| inside instance.
-func (instance *Instance) waitTid() {
-	instance.cond.L.Lock()
-	for instance.tid == kUninitializedTid {
-		instance.cond.Wait()
+func (ins *Instance) waitTid() {
+	ins.cond.L.Lock()
+	for ins.tid == kUninitializedTid {
+		ins.cond.Wait()
 	}
-	instance.cond.L.Unlock()
+	ins.cond.L.Unlock()
 }
 
-// Wake up a instance and notify the tid when receiving its TID from gRPC request.
-func (instance *Instance) notifyTid(tid int) {
-	instance.cond.L.Lock()
-	instance.tid = tid
-	instance.cond.Signal()
-	instance.cond.L.Unlock()
-}
-
-// Each worker has a pool to store instances which are waiting for the TID information sent through gRPC requests.
-// |mutex| is required since both main thread and gRPC server thread may access it at the same time.
-type InstanceWaitingPool struct {
-	mutex sync.Mutex
-	pool  []*Instance
-}
-
-// Add an instance in the waiting pool.
-func (waitingPool *InstanceWaitingPool) add(instance *Instance) {
-	waitingPool.mutex.Lock()
-	waitingPool.pool = append(waitingPool.pool, instance)
-	waitingPool.mutex.Unlock()
-}
-
-// Remove an instance (identified by its port) from the waiting pool after receiving its |tid|.
-func (waitingPool *InstanceWaitingPool) remove(port int, tid int) {
-	waitingPool.mutex.Lock()
-	for i, instance := range waitingPool.pool {
-		if instance.port == port {
-			instance.notifyTid(tid)
-			waitingPool.pool = append(waitingPool.pool[:i], waitingPool.pool[i+1:]...)
-			waitingPool.mutex.Unlock()
-			return
-		}
-	}
-	waitingPool.mutex.Unlock()
-	//TODO: Probably caused by competition.
-	fmt.Printf("Error: Try to remove nonexistent instance with port %d", port)
+// This function will be called when receiving a gRPC request from
+// the NF thread when the instance |ins| is created and running. It
+// wakes up |ins| and sets |tid| up.
+func (ins *Instance) updateTID(tid int) {
+	ins.cond.L.Lock()
+	ins.tid = tid
+	ins.cond.Signal()
+	ins.cond.L.Unlock()
 }

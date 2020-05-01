@@ -2,6 +2,8 @@ package controller
 
 import (
 	"errors"
+	"sync"
+	//"time"
 	"fmt"
 
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
@@ -23,32 +25,35 @@ import (
 // |instancePortPool| manages ports taken by instances on the node.
 // This is to prevent conflicts on host TCP ports.
 // |pciePool| manages pcie port taken by sGroup on the node.
-// |instanceWaitingPool| is a pool for instances that are on start-up.
+// |insStartupPool| is a pool for instances that are on start-up.
 type Worker struct {
 	grpc.VSwitchGRPCHandler
 	grpc.SchedulerGRPCHandler
-	name                string
-	ip                  string
-	cores               map[int]*Core
-	sgroups             map[int]*SGroup
-	freeSGroups         []*SGroup
-	instancePortPool    *utils.IndexPool
-	pciePool            *utils.IndexPool
-	instanceWaitingPool InstanceWaitingPool
-	op                  chan FaaSOP
+	name             string
+	ip               string
+	cores            map[int]*Core
+	sgroups          map[int]*SGroup
+	freeSGroups      []*SGroup
+	instancePortPool *utils.IndexPool
+	pciePool         *utils.IndexPool
+	insStartupPool   *InstancePool
+	op               chan FaaSOP
+	sgMutex          sync.Mutex
+	fsgMutex		 sync.Mutex
 }
 
 func newWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreNumOffset int, coreNum int) *Worker {
+	// Ports taken by instances are between [50052, 51051]
 	w := Worker{
-		name:        name,
-		ip:          ip,
-		cores:       make(map[int]*Core),
-		sgroups:     make(map[int]*SGroup),
-		freeSGroups: make([]*SGroup, 0),
-		// Ports taken by instances are between [50052, 51051]
+		name:             name,
+		ip:               ip,
+		cores:            make(map[int]*Core),
+		sgroups:          make(map[int]*SGroup),
+		freeSGroups:      make([]*SGroup, 0),
 		instancePortPool: utils.NewIndexPool(50052, 1000),
 		pciePool:         utils.NewIndexPool(0, len(PCIeMappings)),
-		op:               make(chan FaaSOP, 10),
+		insStartupPool:   NewInstancePool(),
+		op:               make(chan FaaSOP, 64),
 	}
 
 	// TODO(Zhuojin): remove VSwitchGRPCHandler.
@@ -66,13 +71,8 @@ func newWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreN
 		w.cores[i+coreNumOffset] = newCore()
 	}
 
-	if !runFaaSTest {
-		// Starts a background routine for maintaining |freeSGroups|
-		go w.CreateFreeSGroups(w.op)
-	}
-
-	// Initializes |freeSGroups|
-	w.maintainFreeSGroup()
+	// Starts a background routine for maintaining |freeSGroups|
+	go w.CreateFreeSGroups(w.op)
 
 	return &w
 }
@@ -89,30 +89,32 @@ func (w *Worker) String() string {
 	return info + "\n"
 }
 
-// Creates an NF instance with type |funcType|. Waits for |tid|
-// sent from the instance.
-func (w *Worker) createInstance(funcType string, pcieIdx int, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) *Instance {
+// Creates an NF instance |ins| with type |funcType|. After |ins|
+// is created and starts up, the instance is temporarily stored
+// in the worker's |insStartupPool| and waits for its |tid| sent
+// from its NF thread.
+func (w *Worker) createInstance(funcType string, pcieIdx int, isPrimary string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) (*Instance, error) {
 	port := w.instancePortPool.GetNextAvailable()
-	// By default, the instance will run on core 0.
-
-	if _, err := kubectl.K8sHandler.CreateDeployment(w.name, funcType, port, PCIeMappings[pcieIdx], isIngress, isEgress, vPortIncIdx, vPortOutIdx); err != nil {
-		msg := fmt.Sprintf("Fail to create a new instance. %s", err)
-		glog.Error(msg)
+	podName, err := kubectl.K8sHandler.CreateDeployment(w.name, funcType, port, PCIeMappings[pcieIdx], isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+	if err != nil {
 		w.instancePortPool.Free(port)
-		return nil
+		return nil, err
+	}
+
+	ins := newInstance(funcType, w.ip, port, podName)
+	if isPrimary != "true" {
+		w.insStartupPool.add(ins)
 	}
 
 	// Succeed
-	instance := newInstance(funcType, w.ip, port)
-	w.instanceWaitingPool.add(instance)
-	instance.waitTid()
-	return instance
+	return ins, nil
 }
 
 // Destroys an NF |ins|. Note: this function only gets called
 // when freeing a sGroup.
 func (w *Worker) destroyInstance(ins *Instance) error {
-	err := kubectl.K8sHandler.DeleteDeployment(w.name, ins.funcType, ins.port)
+	glog.Infof("Delete Pod[%s]", ins.podName)
+	err := kubectl.K8sHandler.DeleteDeployment(ins.podName)
 	if err == nil {
 		// Succeed
 		w.instancePortPool.Free(ins.port)
@@ -120,42 +122,25 @@ func (w *Worker) destroyInstance(ins *Instance) error {
 	return err
 }
 
-// Creates and returns a free SGroup that initializes a NIC queue.
-// |sg| can be configured to run a NF chain later by creating NF
-// containers. It initializes a NIC queue that can buffer packets
-// shortly (at most 4K packets).
-func (w *Worker) createFreeSGroup() (*SGroup, error) {
-	pcieIdx := w.pciePool.GetNextAvailable()
-	sg := newSGroup(w, pcieIdx)
-	if sg == nil {
-		w.pciePool.Free(pcieIdx)
-		return nil, errors.New("Failed to create a free SGroup")
+func (w *Worker) createAllFreeSGroups() {
+	for i := 0; i < w.pciePool.Size(); i++ {
+		w.op <- FREE_SGROUP
 	}
-
-	w.freeSGroups = append(w.freeSGroups, sg)
-	return sg, nil
 }
 
-// Destroys a SGroup |sg|.
-// Note: Unable to destroy a SGroup which is currently attached to a core.
-func (w *Worker) destroySGroup(sg *SGroup) error {
-	for _, ins := range sg.instances {
-		w.destroyInstance(ins)
+func (w *Worker) destroyAllFreeSGroups() {
+	var wg sync.WaitGroup
+	wg.Add(len(w.freeSGroups))
+
+	for len(w.freeSGroups) > 0 {
+		idx := len(w.freeSGroups)
+		sg := w.freeSGroups[idx-1]
+		w.freeSGroups = w.freeSGroups[:(idx - 1)]
+
+		go w.destroyFreeSGroup(sg, &wg)
 	}
 
-	sg.reset()
-	w.freeSGroups = append(w.freeSGroups, sg)
-	return nil
-}
-
-func (w *Worker) destroyFreeSGroup(sg *SGroup) error {
-	if err := w.destroyInstance(sg.ingress); err != nil {
-		msg := fmt.Sprintf("Worker[%s] failed to remove SGroup[%d]. %s", sg.worker, sg.groupId, err)
-		return errors.New(msg)
-	}
-
-	w.pciePool.Free(sg.pcieIdx)
-	return nil
+	wg.Wait()
 }
 
 // Returns a free sGroup |sg| in |w.freeSGroups|. |sg| is removed
@@ -172,20 +157,19 @@ func (w *Worker) getFreeSGroup() *SGroup {
 	return nil
 }
 
-/*
-// Find runnable |sGroup| on a core to place the logical chain with |funcTypes|.
-// If not found, return nil.
-func (w *Worker) findRunnableSGroup(funcTypes []string) *SGroup {
-	for _, core := range w.cores {
-		for _, sGroup := range core.sGroups {
-			if sGroup.match(funcTypes) {
-				return sGroup
-			}
-		}
+// Destroys a SGroup |sg|.
+// Note: Unable to destroy a SGroup which is currently attached to a core.
+func (w *Worker) destroySGroup(sg *SGroup) error {
+	for _, ins := range sg.instances {
+		w.destroyInstance(ins)
 	}
+
+	sg.reset()
+	w.freeSGroups = append(w.freeSGroups, sg)
 	return nil
 }
 
+/*
 // TODO: Adjust core selection strategy.
 func (w *Worker) findAvailableCore() int {
 	for coreId, core := range w.cores {
@@ -217,7 +201,7 @@ func (w *Worker) attachSGroup(groupId int, coreId int) error {
 
 	idx := -1
 	for i, group := range w.freeSGroups {
-		if group.groupId == groupId {
+		if group.ID() == groupId {
 			idx = i
 		}
 	}
@@ -231,68 +215,62 @@ func (w *Worker) attachSGroup(groupId int, coreId int) error {
 	// Send gRPC to inform scheduler.
 	if status, err := w.AttachChain(sGroup.tids, coreId); err != nil {
 		return err
-	} else if status.GetError() != 0 {
-		return errors.New(fmt.Sprintf("error from gRPC request AttachChain: %s", status.GetMessage()))
+	} else if status.GetCode() != 0 {
+		return errors.New(fmt.Sprintf("error from gRPC request AttachChain: %s", status.GetErrmsg()))
 	}
 	return nil
 }
 
-// Migrate sGroup with |groupId| from core |coreFrom| to core |coreTo|.
-func (w *Worker) migrateSGroup(groupId int, coreFrom int, coreTo int) error {
-	if err := w.detachSGroup(groupId, coreFrom); err != nil {
+// Migrate sGroup with |groupID| from core |coreFrom| to core |coreTo|.
+func (w *Worker) migrateSGroup(groupID int, coreFrom int, coreTo int) error {
+	if err := w.detachSGroup(groupID, coreFrom); err != nil {
 		return err
 	}
-	if err := w.attachSGroup(groupId, coreTo); err != nil {
+	if err := w.attachSGroup(groupID, coreTo); err != nil {
 		return err
 	}
 	return nil
 }
 
-// Detach sGroup with |groupId| from core |coreId| and move it to freeSGroups.
-func (w *Worker) detachSGroup(groupId int, coreId int) error {
+// Detach sGroup with |groupID| from core |coreId| and move it to freeSGroups.
+func (w *Worker) detachSGroup(groupID int, coreId int) error {
 	if _, exists := w.cores[coreId]; !exists {
 		return errors.New(fmt.Sprintf("core %d not found", coreId))
 	}
 
 	// Move it from core |coreId| to freeSGroups.
-	sGroup := w.cores[coreId].detachSGroup(groupId)
+	sGroup := w.cores[coreId].detachSGroup(groupID)
 	if sGroup == nil {
-		return errors.New(fmt.Sprintf("cannot find sGroup (id = %d) on core %d of node %s", groupId, coreId, w.name))
+		return errors.New(fmt.Sprintf("cannot find sGroup (id = %d) on core %d of node %s", groupID, coreId, w.name))
 	}
 	w.freeSGroups = append(w.freeSGroups, sGroup)
 	// Send gRPC to inform scheduler.
 	if status, err := w.DetachChain(sGroup.tids, coreId); err != nil {
 		return err
-	} else if status.GetError() != 0 {
-		return errors.New(fmt.Sprintf("error from gRPC request DetachChain: %s", status.GetMessage()))
+	} else if status.GetCode() != 0 {
+		return errors.New(fmt.Sprintf("error from gRPC request DetachChain: %s", status.GetErrmsg()))
 	}
 	return nil
 }
 
-// Detach and destroy all sGroups on the worker.
+// Detach and destroy all SGroups on the worker.
 func (w *Worker) cleanUp() error {
 	/*
 		// Detach all sGroups.
 		for coreId, core := range w.cores {
 			for len(core.sGroups) > 0 {
 				sGroup := core.sGroups[0]
-				if err := w.detachSGroup(sGroup.groupId, coreId); err != nil {
+				if err := w.detachSGroup(sGroup.ID(), coreId); err != nil {
 					return err
 				}
 			}
 		}
 	*/
 
-	for len(w.freeSGroups) > 0 {
-		idx := len(w.freeSGroups)
-		sg := w.freeSGroups[idx-1]
-		if err := w.destroyFreeSGroup(sg); err != nil {
-			return err
-		}
+	// Shutdown all background go routines.
+	w.op <- SHUTDOWN
 
-		//w.freeSGroups = append(w.freeSGroups[:i], w.freeSGroups[i+1:]...)
-		w.freeSGroups = w.freeSGroups[:(idx - 1)]
-	}
-
+	w.destroyAllFreeSGroups()
+	fmt.Printf("worker[%s] is cleaned up\n", w.name)
 	return nil
 }

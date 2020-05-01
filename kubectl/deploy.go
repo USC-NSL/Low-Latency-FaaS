@@ -29,7 +29,7 @@ var moduleNameMappings = map[string]string{
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
 // In Kubernetes, the instance is run as a deployment with name "nodeName-funcType-portId".
 func (k8s *KubeController) generateDPDKDeployment(nodeName string, funcType string, hostPort int,
-	pcie string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) unstructured.Unstructured {
+	pcie string, isPrimary string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) unstructured.Unstructured {
 	portId := strconv.Itoa(hostPort)
 	vPortInc := strconv.Itoa(vPortIncIdx)
 	vPortOut := strconv.Itoa(vPortOutIdx)
@@ -70,7 +70,7 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, funcType stri
 									"privileged": true,
 									"runAsUser":  0,
 								},
-								// Hugepage requests equal the limts if 
+								// Hugepage requests equal the limts if
 								// limits are specified but requests are not.
 								"resources": map[string]interface{}{
 									"limits": map[string]interface{}{
@@ -95,6 +95,7 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, funcType stri
 									"--node_name=" + nodeName,
 									"--port=" + portId,
 									"--module=" + moduleName,
+									"--primary=" + isPrimary,
 									"--ingress=" + isIngress,
 									"--egress=" + isEgress,
 									"--isolation_key=" + pcie,
@@ -210,27 +211,22 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, funcType stri
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
 // Essentially, it will call function generateDPDKDeployment to generate a deployment in kubernetes.
 func (k8s *KubeController) CreateDeployment(nodeName string, funcType string, hostPort int,
-	pcie string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) (*unstructured.Unstructured, error) {
+	pcie string, isPrimary string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) (string, error) {
 	deploymentAPI := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
-	deploymentConfig := k8s.generateDPDKDeployment(nodeName, funcType, hostPort, pcie, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+	deploymentConfig := k8s.generateDPDKDeployment(nodeName, funcType, hostPort, pcie, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, funcType, strconv.Itoa(hostPort))
 
-	deployment, err := k8s.dynamicClient.Resource(deploymentAPI).Namespace(k8s.namespace).Create(&deploymentConfig, metav1.CreateOptions{})
+	_, err := k8s.dynamicClient.Resource(deploymentAPI).Namespace(k8s.namespace).Create(&deploymentConfig, metav1.CreateOptions{})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	glog.Infof("Create instance [%s] (pcie=%s,ingress=%s,egress=%s) on %s with port %d successfully.\n",
 		funcType, pcie, isIngress, isEgress, nodeName, hostPort)
-	return deployment, nil
-}
-
-// Delete a NF instance with type |funcType| on node |nodeName| at core |workerCore| with assigned port |hostPort|.
-func (k8s *KubeController) DeleteDeployment(nodeName string, funcType string, hostPort int) error {
-	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, funcType, strconv.Itoa(hostPort))
-	return k8s.DeleteDeploymentByName(deploymentName)
+	return deploymentName, nil
 }
 
 // Delete a kubernetes deployment with the name |deploymentName|.
-func (k8s *KubeController) DeleteDeploymentByName(deploymentName string) error {
+func (k8s *KubeController) DeleteDeployment(deploymentName string) error {
 	deploymentAPI := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 	deletePolicy := metav1.DeletePropagationForeground
 	deleteOptions := metav1.DeleteOptions{

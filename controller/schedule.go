@@ -45,7 +45,6 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 	// get queued up at the NIC queue for a while.
 	if sg = c.getFreeSGroup(); sg != nil {
 		go sg.worker.createSGroup(sg, dag)
-		sg.worker.maintainFreeSGroup()
 		return dmacMappings[sg.pcieIdx], nil
 	}
 
@@ -79,13 +78,6 @@ func (c *FaaSController) getFreeSGroup() *SGroup {
 		}
 	}
 	return nil
-}
-
-// Maintains the set of |freeSGroups| at worker |w|.
-func (w *Worker) maintainFreeSGroup() {
-	if len(w.freeSGroups) < 2 && w.pciePool.Size() >= 1 {
-		w.op <- FREE_SGROUP
-	}
 }
 
 /*
