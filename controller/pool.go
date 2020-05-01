@@ -8,19 +8,19 @@ import (
 
 // Each worker has a pool to store instances which are waiting for the TID information sent through gRPC requests.
 // |mutex| is required since both main thread and gRPC server thread may access it at the same time.
-type InstanceStartupPool struct {
+type InstancePool struct {
 	pool  map[int]*Instance
 	mutex sync.Mutex
 }
 
-func NewInstanceStartupPool() *InstanceStartupPool {
-	return &InstanceStartupPool{
+func NewInstancePool() *InstancePool {
+	return &InstancePool{
 		pool: make(map[int]*Instance),
 	}
 }
 
-// Adds an instance |ins| in the InstanceStartupPool |insPool|.
-func (insPool *InstanceStartupPool) add(ins *Instance) {
+// Adds an instance |ins| in the InstancePool |insPool|.
+func (insPool *InstancePool) add(ins *Instance) {
 	insPool.mutex.Lock()
 	defer insPool.mutex.Unlock()
 
@@ -31,8 +31,8 @@ func (insPool *InstanceStartupPool) add(ins *Instance) {
 }
 
 // Removes an instance (identified by its port) from the
-// InstanceStartupPool pool after receiving its |tid|.
-func (insPool *InstanceStartupPool) remove(port int, tid int) {
+// InstancePool pool after receiving its |tid|.
+func (insPool *InstancePool) remove(port int, tid int) {
 	insPool.mutex.Lock()
 	defer insPool.mutex.Unlock()
 
@@ -43,4 +43,45 @@ func (insPool *InstanceStartupPool) remove(port int, tid int) {
 
 	ins.notifyTid(tid)
 	delete(insPool.pool, port)
+}
+
+type SGroupPool struct {
+	pool []*SGroup
+	mutex sync.Mutex
+}
+
+func NewSGroupPool() *SGroupPool {
+	return &SGroupPool{
+		pool : make([]*SGroup, 0),
+	}
+}
+
+// Adds a SGroup |newSG| into the SGroupPool |sgPool|.
+func (sgPool *SGroupPool) add(newSG *SGroup) {
+	sgPool.mutex.Lock()
+	defer sgPool.mutex.Unlock()
+
+	for _, sg := range sgPool.pool {
+		if sg.ID() == newSG.ID() {
+			glog.Errorf("SGroup[%d]'s already existed in SGroupPool", newSG.ID())
+			return
+		}
+	}
+
+	sgPool.pool = append(sgPool.pool, newSG)
+}
+
+// Removes a SGroup (identified by its ID) from the SGroupPool |sgPool|.
+func (sgPool *SGroupPool) remove(groupID int) {
+	sgPool.mutex.Lock()
+	defer sgPool.mutex.Unlock()
+
+	for i, sg := range sgPool.pool {
+		if sg.ID() == groupID {
+			sgPool.pool = append(sgPool.pool[:i], sgPool.pool[i+1:]...)
+			return
+		}
+	}
+
+	glog.Errorf("Try to remove SGroup[%d], not found in SGroupPool", groupID)
 }

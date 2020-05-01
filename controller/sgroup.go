@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"sync"
 
 	glog "github.com/golang/glog"
 )
@@ -23,8 +24,8 @@ const (
 // |tids| is an array of the tid of every instance in it.
 type SGroup struct {
 	manager          *Instance
+	groupID          int
 	pcieIdx          int
-	groupID			 int
 	instances        []*Instance
 	tids             []int32
 	incQueueLength   int
@@ -34,6 +35,7 @@ type SGroup struct {
 	pktRateKpps      int
 	worker           *Worker
 	coreId           int
+	mutex            sync.Mutex
 }
 
 var PCIeMappings = []string{
@@ -115,7 +117,7 @@ func (sg *SGroup) String() string {
 	return info + fmt.Sprintf("](id=%d, pcie=%s, q=%d, pps=%d kpps)", sg.groupID, PCIeMappings[sg.pcieIdx], sg.incQueueLength, sg.pktRateKpps)
 }
 
-func(sg *SGroup) ID() int {
+func (sg *SGroup) ID() int {
 	return sg.pcieIdx
 }
 

@@ -1,8 +1,8 @@
 package controller
 
 import (
-	"time"
 	"testing"
+	"time"
 )
 
 // Tests of creating a new worker and initializing all NIC queues.

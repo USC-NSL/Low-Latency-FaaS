@@ -36,8 +36,10 @@ type Worker struct {
 	freeSGroups      []*SGroup
 	instancePortPool *utils.IndexPool
 	pciePool         *utils.IndexPool
-	insStartupPool   *InstanceStartupPool
+	insStartupPool   *InstancePool
 	op               chan FaaSOP
+	sgMutex          sync.Mutex
+	fsgMutex		 sync.Mutex
 }
 
 func newWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreNumOffset int, coreNum int) *Worker {
@@ -50,7 +52,7 @@ func newWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreN
 		freeSGroups:      make([]*SGroup, 0),
 		instancePortPool: utils.NewIndexPool(50052, 1000),
 		pciePool:         utils.NewIndexPool(0, len(PCIeMappings)),
-		insStartupPool:   NewInstanceStartupPool(),
+		insStartupPool:   NewInstancePool(),
 		op:               make(chan FaaSOP, 64),
 	}
 

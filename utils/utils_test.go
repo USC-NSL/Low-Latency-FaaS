@@ -2,11 +2,11 @@ package utils
 
 import (
 	"os"
-	"sync"
-	"sort"
-	"time"
 	"reflect"
+	"sort"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestMain(m *testing.M) {
@@ -64,19 +64,19 @@ func TestIndexPoolSingleThread(t *testing.T) {
 	numCount := 10000
 	pool := NewIndexPool(base, numCount)
 
-	for i := 0; i < numCount / 2; i++ {
-		if pool.GetNextAvailable() != 100 + i {
-			t.Errorf("Failed to get %d in the correct order", 100 + i)
+	for i := 0; i < numCount/2; i++ {
+		if pool.GetNextAvailable() != 100+i {
+			t.Errorf("Failed to get %d in the correct order", 100+i)
 		}
 	}
 
-	if pool.Size() != numCount / 2 {
+	if pool.Size() != numCount/2 {
 		t.Errorf("Failed to pop enough numbers")
 	}
 
-	for i := 0; i < numCount / 2; i++ {
-		if pool.GetNextAvailable() != base + numCount / 2 + i {
-			t.Errorf("Failed to get %d in the correct order", 600 + i)
+	for i := 0; i < numCount/2; i++ {
+		if pool.GetNextAvailable() != base+numCount/2+i {
+			t.Errorf("Failed to get %d in the correct order", 600+i)
 		}
 	}
 
@@ -84,7 +84,7 @@ func TestIndexPoolSingleThread(t *testing.T) {
 		t.Errorf("Failed to pop enough numbers")
 	}
 
-	for i := 0; i < numCount / 2; i++ {
+	for i := 0; i < numCount/2; i++ {
 		if pool.GetNextAvailable() != -1 {
 			t.Errorf("Failed to return -1 when IndexPool is empty")
 		}
@@ -98,7 +98,7 @@ func TestIndexPoolMultiThread(t *testing.T) {
 	var mu = &sync.Mutex{}
 	nums := []int{}
 
-	for i := 0; i < numCount / 2; i++ {
+	for i := 0; i < numCount/2; i++ {
 		go func() {
 			num := pool.GetNextAvailable()
 			mu.Lock()
@@ -109,11 +109,11 @@ func TestIndexPoolMultiThread(t *testing.T) {
 	}
 	time.Sleep(500 * time.Millisecond)
 
-	if pool.Size() != numCount / 2 {
+	if pool.Size() != numCount/2 {
 		t.Errorf("Failed to pop enough numbers")
 	}
 
-	for i := 0; i < numCount / 2; i++ {
+	for i := 0; i < numCount/2; i++ {
 		go func() {
 			num := pool.GetNextAvailable()
 			mu.Lock()
@@ -130,12 +130,12 @@ func TestIndexPoolMultiThread(t *testing.T) {
 
 	sort.Ints(nums)
 	for i, num := range nums {
-		if num != base + i {
-			t.Errorf("Failed to pop %d. Poped %d", base + i, num)
+		if num != base+i {
+			t.Errorf("Failed to pop %d. Poped %d", base+i, num)
 		}
 	}
 
-	for i := 0; i < numCount / 2; i++ {
+	for i := 0; i < numCount/2; i++ {
 		go func() {
 			if pool.GetNextAvailable() != -1 {
 				t.Errorf("Failed to return -1 when IndexPool is empty")
