@@ -39,7 +39,7 @@ type Worker struct {
 	insStartupPool   *InstancePool
 	op               chan FaaSOP
 	sgMutex          sync.Mutex
-	fsgMutex		 sync.Mutex
+	fsgMutex         sync.Mutex
 }
 
 func newWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreNumOffset int, coreNum int) *Worker {

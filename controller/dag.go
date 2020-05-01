@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+// |NF| is the abstraction of logical NFs.
+// All NFs are managed and read/written by DAG.
 type NF struct {
 	id       int
 	funcType string
@@ -13,7 +15,7 @@ type NF struct {
 	nextNFs  []int
 }
 
-// |DAG| is an abstraction of NF DAG deployment specified by
+// |DAG| is the abstraction of NF DAG deployment specified by
 // FaaS-NFV users. It defines a logical NF DAG that defines
 // dependencies among NFs, and a set of |flowlets| that defines
 // a set of traffic to be processed by this |DAG| deployment.

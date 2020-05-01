@@ -140,7 +140,7 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 		}
 	}
 
-	if (ready) {
+	if ready {
 		glog.Infof("SGroup[%d] is ready. Notify the scheduler", sg.ID())
 		// Sends gRPC request to inform the scheduler.
 		// w.SetupChain(sg.tids)
