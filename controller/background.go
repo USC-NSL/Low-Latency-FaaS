@@ -86,7 +86,7 @@ func (w *Worker) destroyFreeSGroup(sg *SGroup, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	if err := w.destroyInstance(sg.manager); err != nil {
-		glog.Errorf("Worker[%s] failed to remove SGroup[%d]. %s", sg.worker, sg.groupId, err)
+		glog.Errorf("Worker[%s] failed to remove SGroup[%d]. %s", sg.worker, sg.ID(), err)
 		return
 	}
 
@@ -120,9 +120,9 @@ func (w *Worker) createSGroup(sg *SGroup, dag *DAG) {
 		}
 		vPortIncIdx, vPortOutIdx := i, i+1
 
-		ins := w.createInstance(funcType, pcieIdx, "false", isIngress, isEgress, vPortIncIdx, vPortOutIdx)
-		if ins == nil {
-			glog.Errorf("Failed to create nf[%s]\n", funcType)
+		ins, err := w.createInstance(funcType, pcieIdx, "false", isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+		if err != nil {
+			glog.Errorf("Failed to create nf[%s]. %s\n", funcType, err)
 			// Cleanup..
 			for _, instance := range sg.instances {
 				w.destroyInstance(instance)
@@ -138,6 +138,6 @@ func (w *Worker) createSGroup(sg *SGroup, dag *DAG) {
 
 	// Adds |sg| to |w|'s active |sgroups|, and |dag|'s
 	// active |sgroups|.
-	w.sgroups[sg.groupId] = sg
+	w.sgroups[sg.ID()] = sg
 	dag.sgroups = append(dag.sgroups, sg)
 }

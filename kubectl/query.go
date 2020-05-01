@@ -87,10 +87,12 @@ func (k8s *KubeController) GetPodStatusByName(deployName string) string {
 	for _, pod := range pods.Items {
 		if pod.DeletionTimestamp != nil {
 			status = "Terminating"
-		} else if pod.Status.ContainerStatuses[0].State.Running != nil {
-			status = "Running"
-		} else if pod.Status.ContainerStatuses[0].State.Terminated != nil {
-			status = "Terminating"
+		} else if len(pod.Status.ContainerStatuses) > 0 {
+			if pod.Status.ContainerStatuses[0].State.Running != nil {
+				status = "Running"
+			} else if pod.Status.ContainerStatuses[0].State.Terminated != nil {
+				status = "Terminating"
+			}
 		}
 	}
 

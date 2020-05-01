@@ -19,6 +19,8 @@ const kUninitializedTid int = -1
 // an unique id for the instance.
 // |address| is the ip:port address of the gRPC server.
 // |tid| is the thread ID of the instance.
+// |podName| is the Pod's deployment name in Kubernetes.
+// |groupID| is the SGroup's ID.
 // |cond| is the conditional variable used for tid initialization.
 type Instance struct {
 	grpc.InstanceGRPCHandler

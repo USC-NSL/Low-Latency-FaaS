@@ -12,20 +12,19 @@ const (
 )
 
 // The abstraction of minimal scheduling unit at each CPU core.
-// Both |groupId| and |pcieIdx| can be identify this sgroup.
-// |manager| manages NIC queues, memory buffers. |groupID| is
-// a global index of |this| SGroup.
+// |manager| manages NIC queues, memory buffers.
+// |pcieIdx| is used to identify this sgroup.
 // |instances| are NF instances within the scheduling group.
 // |QueueLength, QueueCapacity| are the NIC queue information.
 // |pktRateKpps| describes the observed traffic.
 // |worker| is the worker node that the sGroup attached to. Set -1 when not attached.
 // |coreId| is the core that the sGroup scheduled to.
-// |groupId| is the unique identifier of the sGroup on a worker. Technically, it is equal to the tid of its first NF instance.
+// |groupID| is the unique identifier of the sGroup on a worker. Technically, it is equal to the tid of its first NF instance.
 // |tids| is an array of the tid of every instance in it.
 type SGroup struct {
 	manager          *Instance
-	groupId          int
 	pcieIdx          int
+	groupID			 int
 	instances        []*Instance
 	tids             []int32
 	incQueueLength   int
@@ -75,21 +74,9 @@ var dmacMappings = []string{
 
 func newSGroup(w *Worker, pcieIdx int) *SGroup {
 	glog.Infof("Create a new SGroup at worker[%s]:pcie[%d]", w.name, pcieIdx)
-	isPrimary := "true"
-	isIngress := "false"
-	isEgress := "false"
-	vPortIncIdx := 0
-	vPortOutIdx := 0
-
-	ins := w.createInstance("prim", pcieIdx, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
-	// Fail to create the head instance. Cleanup..
-	if ins == nil {
-		return nil
-	}
-
 	sg := SGroup{
-		manager:          ins,
-		groupId:          ins.ID(),
+		groupID:          pcieIdx,
+		pcieIdx:          pcieIdx,
 		instances:        make([]*Instance, 0),
 		tids:             make([]int32, 0),
 		incQueueLength:   0,
@@ -99,21 +86,37 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 		pktRateKpps:      0,
 		worker:           w,
 		coreId:           -1,
-		pcieIdx:          pcieIdx,
 	}
+
+	isPrimary := "true"
+	isIngress := "false"
+	isEgress := "false"
+	vPortIncIdx := 0
+	vPortOutIdx := 0
+	ins, err := w.createInstance("prim", pcieIdx, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+	// Fail to create the head instance. Cleanup..
+	if err != nil {
+		return nil
+	}
+
+	sg.manager = ins
 	return &sg
 }
 
-func (s *SGroup) String() string {
+func (sg *SGroup) String() string {
 	info := "["
-	for idx, instance := range s.instances {
-		if idx == 0 {
-			info += fmt.Sprintf("%s", instance)
+	for i, ins := range sg.instances {
+		if i == 0 {
+			info += fmt.Sprintf("%s", ins)
 		} else {
-			info += fmt.Sprintf("->%s", instance)
+			info += fmt.Sprintf("->%s", ins)
 		}
 	}
-	return info + fmt.Sprintf("](id=%d, pcie=%s, q=%d, pps=%d kpps)", s.groupId, PCIeMappings[s.pcieIdx], s.incQueueLength, s.pktRateKpps)
+	return info + fmt.Sprintf("](id=%d, pcie=%s, q=%d, pps=%d kpps)", sg.groupID, PCIeMappings[sg.pcieIdx], sg.incQueueLength, sg.pktRateKpps)
+}
+
+func(sg *SGroup) ID() int {
+	return sg.pcieIdx
 }
 
 func (sg *SGroup) reset() {

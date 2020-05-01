@@ -23,23 +23,23 @@ func (c *Core) String() string {
 	if len(c.sGroups) == 0 {
 		return "Empty"
 	}
-	for _, sGroup := range c.sGroups {
-		info += fmt.Sprintf("<%s> ", sGroup)
+	for _, sg := range c.sGroups {
+		info += fmt.Sprintf("<%s> ", sg)
 	}
 	return info
 }
 
-// Attach |sGroup| on the core.
-func (c *Core) attachSGroup(sGroup *SGroup) {
-	c.sGroups = append(c.sGroups, sGroup)
+// Attach a SGroup |sg| on the core.
+func (c *Core) attachSGroup(sg *SGroup) {
+	c.sGroups = append(c.sGroups, sg)
 }
 
 // Detach sGroup with |groupId| on the core.
 func (c *Core) detachSGroup(groupId int) *SGroup {
-	for i, sGroup := range c.sGroups {
-		if sGroup.groupId == groupId {
+	for i, sg := range c.sGroups {
+		if sg.ID() == groupId {
 			c.sGroups = append(c.sGroups[:i], c.sGroups[i+1:]...)
-			return sGroup
+			return sg
 		}
 	}
 	return nil
