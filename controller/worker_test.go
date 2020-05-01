@@ -33,8 +33,8 @@ func TestWorkerStartFreeSGroups(t *testing.T) {
 
 // Tests of deploying and deleting an NF DAG at a worker.
 func TestStartNFChain(t *testing.T) {
-	return
 	w := newWorker("ubuntu", "204.57.7.11", 10514, 10515, 1, 7)
+
 	w.op <- FREE_SGROUP
 
 	start := time.Now()

@@ -125,3 +125,24 @@ func (sg *SGroup) reset() {
 	sg.instances = nil
 	sg.tids = nil
 }
+
+func (sg *SGroup) UpdateTID(port int, tid int) {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	ready := true
+	for _, ins := range sg.instances {
+		if ins.ID() == port {
+			ins.tid = tid
+		}
+		if ins.tid == kUninitializedTid {
+			ready = false
+		}
+	}
+
+	if (ready) {
+		glog.Infof("SGroup[%d] is ready. Notify the scheduler", sg.ID())
+		// Sends gRPC request to inform the scheduler.
+		// w.SetupChain(sg.tids)
+	}
+}

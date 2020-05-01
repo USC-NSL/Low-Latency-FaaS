@@ -27,8 +27,9 @@ type Instance struct {
 	funcType string
 	port     int
 	address  string
-	tid      int
 	podName  string
+	sg       *SGroup
+	tid      int
 	cond     *sync.Cond
 }
 
@@ -37,8 +38,8 @@ func newInstance(funcType string, hostIp string, port int, podName string) *Inst
 		funcType: funcType,
 		port:     port,
 		address:  hostIp + ":" + strconv.Itoa(port),
-		tid:      kUninitializedTid,
 		podName:  podName,
+		tid:      kUninitializedTid,
 		cond:     sync.NewCond(&sync.Mutex{}),
 	}
 	return &instance
@@ -66,7 +67,7 @@ func (ins *Instance) waitTid() {
 // This function will be called when receiving a gRPC request from
 // the NF thread when the instance |ins| is created and running. It
 // wakes up |ins| and sets |tid| up.
-func (ins *Instance) notifyTid(tid int) {
+func (ins *Instance) updateTID(tid int) {
 	ins.cond.L.Lock()
 	ins.tid = tid
 	ins.cond.Signal()

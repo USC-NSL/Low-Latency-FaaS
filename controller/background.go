@@ -103,7 +103,6 @@ func (w *Worker) destroyFreeSGroup(sg *SGroup, wg *sync.WaitGroup) {
 	w.pciePool.Free(sg.pcieIdx)
 }
 
-// Go-routine function when setting up an NF DAG.
 // Scales up the NF |dag| by creating all related NF containers. Also
 // sends a gRPC request to register all NF threads at the |w|'s
 // CooperativeSched. |sg| is updated after this function finishes.
@@ -132,9 +131,6 @@ func (w *Worker) createSGroup(sg *SGroup, dag *DAG) {
 		}
 		sg.instances = append(sg.instances, ins)
 	}
-
-	// Sends gRPC request to inform the scheduler.
-	w.SetupChain(sg.tids)
 
 	// Adds |sg| to |w|'s active |sgroups|, and |dag|'s
 	// active |sgroups|.

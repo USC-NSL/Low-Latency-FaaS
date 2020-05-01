@@ -30,18 +30,31 @@ func (insPool *InstancePool) add(ins *Instance) {
 	insPool.pool[ins.port] = ins
 }
 
-// Removes an instance (identified by its port) from the
-// InstancePool pool after receiving its |tid|.
-func (insPool *InstancePool) remove(port int, tid int) {
+// Returns an instance |ins| from the InstancePool |insPool|.
+func (insPool *InstancePool) get(port int) *Instance {
 	insPool.mutex.Lock()
 	defer insPool.mutex.Unlock()
 
 	ins, exist := insPool.pool[port]
 	if !exist {
 		glog.Errorf("Try to remove Instance[%d], not found in StartupPool", port)
+		return nil
+	}
+	return ins
+}
+
+// Removes an instance, indexed by its port, from the 
+// InstancePool |insPool|.
+func (insPool *InstancePool) remove(port int) {
+	insPool.mutex.Lock()
+	defer insPool.mutex.Unlock()
+
+	_, exist := insPool.pool[port]
+	if !exist {
+		glog.Errorf("Try to remove Instance[%d], not found in StartupPool", port)
+		return
 	}
 
-	ins.notifyTid(tid)
 	delete(insPool.pool, port)
 }
 

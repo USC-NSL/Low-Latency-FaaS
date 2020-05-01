@@ -74,10 +74,6 @@ func newWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreN
 	// Starts a background routine for maintaining |freeSGroups|
 	go w.CreateFreeSGroups(w.op)
 
-	if !runFaaSTest {
-		w.createAllFreeSGroups()
-	}
-
 	return &w
 }
 
