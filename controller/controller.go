@@ -1,10 +1,11 @@
 package controller
 
 import (
-	"errors"
 	"fmt"
+	"strings"
 	"io/ioutil"
 	"os/exec"
+	"errors"
 
 	glog "github.com/golang/glog"
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
@@ -58,6 +59,25 @@ func (c *FaaSController) getWorker(nodeName string) *Worker {
 		return nil
 	}
 	return c.workers[nodeName]
+}
+
+// This function cleans up the FaaSController |c|.
+// Cleans up all associated FaaS worker nodes.
+func (c *FaaSController) Close() error {
+	errmsg := []string{}
+
+	for _, w := range c.workers {
+		if err := w.Close(); err != nil {
+			errmsg = append(errmsg, fmt.Sprintf("worker[%s] didn't close. Reason: %v\n", err))
+		}
+	}
+
+	if len(errmsg) > 0 {
+		return errors.New(strings.Join(errmsg, ""))
+	}
+
+	// Succeed.
+	return nil
 }
 
 // Note: CLI-only functions.
@@ -174,15 +194,7 @@ func (c *FaaSController) DetachSGroup(nodeName string, groupId int) error {
 	return c.workers[nodeName].detachSGroup(groupId)
 }
 
-// Detach and destroy all sGroups.
-func (c *FaaSController) CleanUpAllWorkers() error {
-	for _, w := range c.workers {
-		if err := w.cleanUp(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
+// Note: gRPC functions
 
 // Called when receiving gRPC request for an new instance setting up.
 // The new instance is on worker |nodeName| with allocated port |port| and TID |tid|.

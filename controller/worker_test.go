@@ -24,7 +24,7 @@ func TestWorkerStartFreeSGroups(t *testing.T) {
 	}
 
 	// Cleanup.
-	w.cleanUp()
+	w.Close()
 
 	if len(w.freeSGroups) != 0 {
 		t.Errorf("Fail to clean up all free SGroups")
@@ -74,7 +74,7 @@ func TestStartNFChain(t *testing.T) {
 	}
 
 	// Cleanup.
-	w.cleanUp()
+	w.Close()
 
 	if len(w.freeSGroups) != 0 {
 		t.Errorf("Fail to clean up all free SGroups")

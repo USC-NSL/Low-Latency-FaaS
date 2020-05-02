@@ -1,10 +1,11 @@
 package controller
 
 import (
-	"errors"
-	"sync"
-	//"time"
 	"fmt"
+	"strings"
+	"sync"
+	"errors"
+	//"time"
 
 	glog "github.com/golang/glog"
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
@@ -61,8 +62,9 @@ func newWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreN
 	//	fmt.Println("Fail to connect with vSwitch: " + err.Error())
 	//}
 
-	if err := w.SchedulerGRPCHandler.EstablishConnection(fmt.Sprintf("%s:%d", ip, schedulerPort)); err != nil {
-		fmt.Println("Fail to connect with scheduler: " + err.Error())
+	schedAddr := fmt.Sprintf("%s:%d", ip, schedulerPort)
+	if err := w.SchedulerGRPCHandler.EstablishConnection(schedAddr); err != nil {
+		glog.Errorf("Fail to connect with scheduler[%s]. %v", schedAddr, err)
 	}
 
 	// coreId is ranged between [coreNumOffset, coreNumOffset + coreNum)
@@ -243,24 +245,29 @@ func (w *Worker) detachSGroup(groupID int) error {
 	return nil
 }
 
-// Detach and destroy all SGroups on the worker.
-func (w *Worker) cleanUp() error {
-	/*
-		// Detach all sGroups.
-		for coreId, core := range w.cores {
-			for len(core.sGroups) > 0 {
-				sGroup := core.sGroups[0]
-				if err := w.detachSGroup(sGroup.ID(), coreId); err != nil {
-					return err
-				}
-			}
-		}
-	*/
+// Unschedule all NF threads and shutdown CooperativeSched. 
+// Destroy all SGroups (Instances), FreeSGroups on worker |w|.
+func (w *Worker) Close() error {
+	errmsg := []string{}
+
+	// Send gRPC to shutdown scheduler.
+	if res, err := w.KillSched(); err != nil {
+		msg := "Connection failed when killing CooperativeSched"
+		errmsg = append(errmsg, msg)
+	} else if res.GetError().GetCode() != 0 {
+		msg := fmt.Sprintf("Failed to kill CooperativeSched. Reason: %s", res.GetError().GetErrmsg())
+		errmsg = append(errmsg, msg)
+	}
 
 	// Shutdown all background go routines.
 	w.op <- SHUTDOWN
 
 	w.destroyAllFreeSGroups()
+
+	if len(errmsg) > 0 {
+		return errors.New(strings.Join(errmsg, ""))
+	}
+
 	fmt.Printf("worker[%s] is cleaned up\n", w.name)
 	return nil
 }
