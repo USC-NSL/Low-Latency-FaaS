@@ -78,14 +78,14 @@ func (e *Executor) Execute(s string) {
 		groupID, _ := strconv.Atoi(words[2])
 
 		e.FaaSController.DestroySGroup(nodeName, groupID)
-	} else if words[0] == "attach" && len(words) > 3 {
+	} else if words[0] == "attach" && len(words) > 2 {
 		nodeName := words[1]
 		groupId, _ := strconv.Atoi(words[2])
 		coreId, _ := strconv.Atoi(words[3])
 		if err := e.FaaSController.AttachSGroup(nodeName, groupId, coreId); err != nil {
 			fmt.Printf("Failed to attach sGroup (id=%d) on core %d of worker %s: %s!\n", groupId, coreId, nodeName, err.Error())
 		}
-	} else if words[0] == "detach" && len(words) > 3 {
+	} else if words[0] == "detach" && len(words) > 2 {
 		nodeName := words[1]
 		groupId, _ := strconv.Atoi(words[2])
 

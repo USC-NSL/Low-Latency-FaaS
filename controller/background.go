@@ -122,14 +122,13 @@ func (w *Worker) createSGroup(sg *SGroup, dag *DAG) {
 		ins, err := w.createInstance(funcType, pcieIdx, "false", isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 		if err != nil {
 			glog.Errorf("Failed to create nf[%s]. %s\n", funcType, err)
-			// Cleanup..
-			for _, instance := range sg.instances {
-				w.destroyInstance(instance)
-			}
-			w.freeSGroups = append(w.freeSGroups, sg)
+
+			// Cleanup.. |sg| is moved to |w.freeSGroups|.
+			w.destroySGroup(sg)
 			return
 		}
-		sg.instances = append(sg.instances, ins)
+
+		sg.AppendInstance(ins)
 	}
 
 	// Adds |sg| to |w|'s active |sgroups|, and |dag|'s

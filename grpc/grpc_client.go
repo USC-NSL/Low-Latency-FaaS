@@ -16,7 +16,7 @@ type GRPCClient struct {
 // |address| is a string in the form of "IP:Port".
 func (client *GRPCClient) EstablishConnection(address string) error {
 	// Add context for gRPC request to set timeout to three seconds
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	conn, err := grpc.DialContext(ctx, address, grpc.WithInsecure(), grpc.WithBlock())
 	client.grpcConn = conn

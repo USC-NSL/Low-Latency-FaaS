@@ -121,9 +121,25 @@ func (sg *SGroup) ID() int {
 	return sg.pcieIdx
 }
 
-func (sg *SGroup) reset() {
+// Destroys and removes all instances associaed with |sg|.
+func (sg *SGroup) Reset() {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	for _, ins := range sg.instances {
+		sg.worker.destroyInstance(ins)
+	}
+
 	sg.instances = nil
 	sg.tids = nil
+}
+
+func (sg *SGroup) AppendInstance(ins *Instance) {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	ins.sg = sg
+	sg.instances = append(sg.instances, ins)
 }
 
 func (sg *SGroup) UpdateTID(port int, tid int) {

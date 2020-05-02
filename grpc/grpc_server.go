@@ -68,8 +68,10 @@ func (s *GRPCServer) InstanceSetUp(context context.Context, instanceInfo *pb.Ins
 	glog.Infof("Set up Instance [w=%s, port=%d, tid=%d]\n", nodeName, port, tid)
 
 	if err := s.FaaSController.InstanceSetUp(nodeName, port, tid); err != nil {
+		glog.Errorf("Failed to set up Instance. %v", err)
 		return &pb.Error{Code: 1, Errmsg: err.Error()}, err
 	}
+
 	return &pb.Error{Code: 0}, nil
 }
 

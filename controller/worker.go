@@ -61,10 +61,9 @@ func newWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreN
 	//	fmt.Println("Fail to connect with vSwitch: " + err.Error())
 	//}
 
-	/* TODO(Jianfeng): fix per-worker scheduling.
 	if err := w.SchedulerGRPCHandler.EstablishConnection(fmt.Sprintf("%s:%d", ip, schedulerPort)); err != nil {
 		fmt.Println("Fail to connect with scheduler: " + err.Error())
-	}*/
+	}
 
 	// coreId is ranged between [coreNumOffset, coreNumOffset + coreNum)
 	for i := 0; i < coreNum; i++ {
@@ -161,12 +160,10 @@ func (w *Worker) getFreeSGroup() *SGroup {
 // Destroys a SGroup |sg|.
 // Note: Unable to destroy a SGroup which is currently attached to a core.
 func (w *Worker) destroySGroup(sg *SGroup) error {
-	for _, ins := range sg.instances {
-		w.destroyInstance(ins)
-	}
+	sg.Reset()
 
-	sg.reset()
 	w.freeSGroups = append(w.freeSGroups, sg)
+
 	return nil
 }
 
@@ -231,6 +228,7 @@ func (w *Worker) migrateSGroup(groupID int, coreFrom int, coreTo int) error {
 func (w *Worker) detachSGroup(groupID int) error {
 	// Move it from core |coreId| to freeSGroups.
 	//sGroup := w.cores[coreId].detachSGroup(groupID)
+
 	sg, exists := w.sgroups[groupID]
 	if !exists {
 		return errors.New(fmt.Sprintf("SGroup[id = %d] not found by worker[%s]", groupID, w.name))
