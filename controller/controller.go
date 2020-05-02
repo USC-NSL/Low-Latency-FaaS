@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os/exec"
 
+	glog "github.com/golang/glog"
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
 )
 
@@ -35,6 +36,12 @@ func NewFaaSController(isTest bool) *FaaSController {
 	// TODO: Replace hard-code information with reading from k8s configurations.
 	//c.createWorker("uscnsl", "204.57.7.2", 10514, 10515, 1, 7)
 	c.createWorker("ubuntu", "204.57.7.11", 10514, 10515, 1, 7)
+
+	// Initializes all hugepages and NIC queues.
+	for _, w := range c.workers {
+		w.createAllFreeSGroups()
+	}
+
 	return c
 }
 
@@ -53,6 +60,7 @@ func (c *FaaSController) getWorker(nodeName string) *Worker {
 	return c.workers[nodeName]
 }
 
+// Note: CLI-only functions.
 func (c *FaaSController) GetWorkersInfo() string {
 	info := ""
 	for _, worker := range c.workers {
@@ -118,37 +126,52 @@ func (c *FaaSController) ShowNFDAGs(user string) {
 	}
 }
 
-/*
-// Note: Only used for test. Call function FindCoreToServeSGroup to create sGroup instead.
-func (c *FaaSController) CreateSGroup(nodeName string, funcTypes []string) error {
-	if _, exists := c.workers[nodeName]; !exists {
+func (c *FaaSController) CreateSGroup(nodeName string, nfs []string) error {
+	w, exists := c.workers[nodeName]
+	if !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
 
-	_, err := c.workers[nodeName].createSGroup(funcTypes)
-	return err
+	dag := newDAG()
+	dag.chains = append(dag.chains, nfs...)
+	glog.Infof("Deploy a DAG %v", dag.chains)
+
+	n := len(w.freeSGroups)
+	var sg *SGroup = w.freeSGroups[n-1]
+	w.freeSGroups = w.freeSGroups[:(n - 1)]
+
+	w.createSGroup(sg, dag)
+	return nil
 }
 
 func (c *FaaSController) DestroySGroup(nodeName string, groupId int) error {
-	if _, exists := c.workers[nodeName]; !exists {
+	w, exists := c.workers[nodeName]
+	if !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
-	return c.workers[nodeName].destroyFreeSGroup(groupId)
+
+	sg, exists := w.sgroups[groupId]
+	if !exists {
+		return errors.New(fmt.Sprintf("sg %s not found", groupId))
+	}
+
+	return c.workers[nodeName].destroySGroup(sg)
 }
-*/
 
 func (c *FaaSController) AttachSGroup(nodeName string, groupId int, coreId int) error {
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
+
 	return c.workers[nodeName].attachSGroup(groupId, coreId)
 }
 
-func (c *FaaSController) DetachSGroup(nodeName string, groupId int, coreId int) error {
+func (c *FaaSController) DetachSGroup(nodeName string, groupId int) error {
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
-	return c.workers[nodeName].detachSGroup(groupId, coreId)
+
+	return c.workers[nodeName].detachSGroup(groupId)
 }
 
 // Detach and destroy all sGroups.

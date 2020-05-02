@@ -43,7 +43,7 @@ func (insPool *InstancePool) get(port int) *Instance {
 	return ins
 }
 
-// Removes an instance, indexed by its port, from the 
+// Removes an instance, indexed by its port, from the
 // InstancePool |insPool|.
 func (insPool *InstancePool) remove(port int) {
 	insPool.mutex.Lock()
@@ -59,13 +59,13 @@ func (insPool *InstancePool) remove(port int) {
 }
 
 type SGroupPool struct {
-	pool []*SGroup
+	pool  []*SGroup
 	mutex sync.Mutex
 }
 
 func NewSGroupPool() *SGroupPool {
 	return &SGroupPool{
-		pool : make([]*SGroup, 0),
+		pool: make([]*SGroup, 0),
 	}
 }
 

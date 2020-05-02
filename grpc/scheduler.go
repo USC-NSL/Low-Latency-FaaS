@@ -8,13 +8,14 @@ import (
 	pb "github.com/USC-NSL/Low-Latency-FaaS/proto"
 )
 
-// The handler for sending gRPC requests to a scheduler on a machine.
-// |GRPCClient| is the struct to maintain the gRPC connection.
+// gRPC Handlers for sending requests to a worker's CooperativeSched.
+// |GRPCClient| maintains a gRPC connection to the server.
 type SchedulerGRPCHandler struct {
 	GRPCClient
 }
 
-// Send gRPC request to set up a thread (identified by |tid|) in the free threads pool on the machine, but not schedule it.
+// Registers a SGroup in the free threads pool on the worker.
+// SGroup is managed by the scheduler and in a detached state.
 func (handler *SchedulerGRPCHandler) SetupChain(tids []int32) (*pb.Error, error) {
 	if handler.grpcConn == nil {
 		return nil, errors.New("connection does not exist")
@@ -25,11 +26,13 @@ func (handler *SchedulerGRPCHandler) SetupChain(tids []int32) (*pb.Error, error)
 	defer cancel()
 
 	client := pb.NewSchedulerControlClient(handler.grpcConn)
-	response, err := client.SetupChain(ctx, &pb.SetupChainArg{Chain: tids})
-	return response, err
+	res, err := client.SetupChain(ctx, &pb.SetupChainArg{Chain: tids})
+	return res, err
 }
 
-// Send gRPC request to set up a thread (identified by |tid|) in the free threads pool on the machine, but not schedule it.
+// Unschedules a SGroup from the CooperativeSched on the worker.
+// All futher operations won't be effective on this SGroup unless
+// FaaSController registers the SGroup again.
 func (handler *SchedulerGRPCHandler) RemoveChain(tids []int32) (*pb.Error, error) {
 	if handler.grpcConn == nil {
 		return nil, errors.New("connection does not exist")
@@ -40,11 +43,11 @@ func (handler *SchedulerGRPCHandler) RemoveChain(tids []int32) (*pb.Error, error
 	defer cancel()
 
 	client := pb.NewSchedulerControlClient(handler.grpcConn)
-	response, err := client.RemoveChain(ctx, &pb.RemoveChainArg{Chain: tids})
-	return response, err
+	res, err := client.RemoveChain(ctx, &pb.RemoveChainArg{Chain: tids})
+	return res, err
 }
 
-// Send gRPC request to remove a sGroup (identified by an array of tid |tids|) from free threads pool and schedule it on |core|.
+// Migrates/Schedules a SGroup on the worker's |core|.
 func (handler *SchedulerGRPCHandler) AttachChain(tids []int32, core int) (*pb.Error, error) {
 	if handler.grpcConn == nil {
 		return nil, errors.New("connection does not exist")
@@ -55,11 +58,12 @@ func (handler *SchedulerGRPCHandler) AttachChain(tids []int32, core int) (*pb.Er
 	defer cancel()
 
 	client := pb.NewSchedulerControlClient(handler.grpcConn)
-	response, err := client.AttachChain(ctx, &pb.AttachChainArg{Chain: tids, Core: int32(core)})
-	return response, err
+	res, err := client.AttachChain(ctx, &pb.AttachChainArg{Chain: tids, Core: int32(core)})
+	return res, err
 }
 
-// Send gRPC request to remove a sGroup (identified by an array of tid |tids|) from |core| and put it back to the free threads pool.
+// Detaches a SGroup. The SGroup stops running, but is still
+// managed by the worker's |core|.
 func (handler *SchedulerGRPCHandler) DetachChain(tids []int32, core int) (*pb.Error, error) {
 	if handler.grpcConn == nil {
 		return nil, errors.New("connection does not exist")
@@ -70,6 +74,6 @@ func (handler *SchedulerGRPCHandler) DetachChain(tids []int32, core int) (*pb.Er
 	defer cancel()
 
 	client := pb.NewSchedulerControlClient(handler.grpcConn)
-	response, err := client.DetachChain(ctx, &pb.DetachChainArg{Chain: tids, Core: int32(core)})
-	return response, err
+	res, err := client.DetachChain(ctx, &pb.DetachChainArg{Chain: tids, Core: int32(core)})
+	return res, err
 }
