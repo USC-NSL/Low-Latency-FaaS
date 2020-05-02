@@ -127,7 +127,10 @@ func (sg *SGroup) Reset() {
 	defer sg.mutex.Unlock()
 
 	for _, ins := range sg.instances {
-		sg.worker.destroyInstance(ins)
+		err := sg.worker.destroyInstance(ins)
+		if err != nil {
+			glog.Errorf("Failed to remove Pod[%s] in SGroup[%d]. %v", ins.funcType, sg.ID(), err)
+		}
 	}
 
 	sg.instances = nil

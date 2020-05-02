@@ -76,7 +76,9 @@ func (w *Worker) createFreeSGroup() *SGroup {
 		time.Sleep(100 * time.Millisecond)
 	}
 
+	w.sgMutex.Lock()
 	w.freeSGroups = append(w.freeSGroups, sg)
+	w.sgMutex.Unlock()
 	return sg
 }
 
@@ -133,6 +135,9 @@ func (w *Worker) createSGroup(sg *SGroup, dag *DAG) {
 
 	// Adds |sg| to |w|'s active |sgroups|, and |dag|'s
 	// active |sgroups|.
-	w.sgroups[sg.ID()] = sg
+	w.sgMutex.Lock()
+	w.sgroups = append(w.sgroups, sg)
+	w.sgMutex.Unlock()
+
 	dag.sgroups = append(dag.sgroups, sg)
 }
