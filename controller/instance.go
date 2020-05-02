@@ -28,6 +28,7 @@ const kUninitializedTid int = -1
 
 type Instance struct {
 	funcType string
+	isNF     bool
 	port     int
 	address  string
 	podName  string
@@ -40,6 +41,7 @@ type Instance struct {
 func newInstance(funcType string, hostIp string, port int, podName string) *Instance {
 	instance := Instance{
 		funcType: funcType,
+		isNF:     (funcType != "prim" && funcType != "sched"),
 		port:     port,
 		address:  hostIp + ":" + strconv.Itoa(port),
 		podName:  podName,

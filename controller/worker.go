@@ -32,6 +32,7 @@ type Worker struct {
 	grpc.SchedulerGRPCHandler
 	name             string
 	ip               string
+	sched            *Instance
 	cores            map[int]*Core
 	sgroups          []*SGroup
 	freeSGroups      []*SGroup
@@ -56,16 +57,6 @@ func NewWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreN
 		op:               make(chan FaaSOP, 64),
 	}
 
-	// TODO(Zhuojin): remove VSwitchGRPCHandler.
-	//if err := w.VSwitchGRPCHandler.EstablishConnection(fmt.Sprintf("%s:%d", ip, vSwitchPort)); err != nil {
-	//	fmt.Println("Fail to connect with vSwitch: " + err.Error())
-	//}
-
-	schedAddr := fmt.Sprintf("%s:%d", ip, schedulerPort)
-	if err := w.SchedulerGRPCHandler.EstablishConnection(schedAddr); err != nil {
-		fmt.Errorf("Fail to connect with scheduler[%s]. %v", schedAddr, err)
-	}
-
 	// coreId is ranged between [coreNumOffset, coreNumOffset + coreNum)
 	for i := 0; i < coreNum; i++ {
 		w.cores[i+coreNumOffset] = newCore()
@@ -73,6 +64,20 @@ func NewWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreN
 
 	// Starts a background routine for maintaining |freeSGroups|
 	go w.CreateFreeSGroups(w.op)
+
+	// TODO(Zhuojin): remove VSwitchGRPCHandler.
+	//if err := w.VSwitchGRPCHandler.EstablishConnection(fmt.Sprintf("%s:%d", ip, vSwitchPort)); err != nil {
+	//	fmt.Println("Fail to connect with vSwitch: " + err.Error())
+	//}
+
+	if err := w.createSched(schedulerPort); err != nil {
+		glog.Errorf("Fail to create a CoopSched. %v", err)
+	}
+
+	schedAddr := fmt.Sprintf("%s:%d", ip, schedulerPort)
+	if err := w.SchedulerGRPCHandler.EstablishConnection(schedAddr); err != nil {
+		glog.Errorf("Fail to connect with scheduler[%s]. %v", schedAddr, err)
+	}
 
 	glog.Infof("Worker[%s] is ready.", w.name)
 	return &w
@@ -95,6 +100,16 @@ func (w *Worker) String() string {
 	info += fmt.Sprintf("\n %d remaining free SGroups", len(w.freeSGroups))
 
 	return info + "\n"
+}
+
+func (w *Worker) createSched(schedPort int) error {
+	podName, err := kubectl.K8sHandler.CreateSchedDeployment(w.name, schedPort)
+	if err != nil {
+		return err
+	}
+
+	w.sched = newInstance("sched", w.ip, schedPort, podName)
+	return nil
 }
 
 // Creates an NF instance |ins| with type |funcType|. After |ins|

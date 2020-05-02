@@ -28,7 +28,7 @@ var moduleNameMappings = map[string]string{
 // Create a NF instance with type |funcType| on node |nodeName|,
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
 // In Kubernetes, the instance is run as a deployment with name "nodeName-funcType-portId".
-func (k8s *KubeController) generateDPDKDeployment(nodeName string, funcType string, hostPort int,
+func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string, funcType string, hostPort int,
 	pcie string, isPrimary string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) unstructured.Unstructured {
 	portId := strconv.Itoa(hostPort)
 	vPortInc := strconv.Itoa(vPortIncIdx)
@@ -207,19 +207,106 @@ func (k8s *KubeController) generateDPDKDeployment(nodeName string, funcType stri
 	return deployment
 }
 
-// Create a NF instance with type |funcType| on node |nodeName| at core |workerCore|,
-// also assign the port |hostPort| of the host for the instance to receive gRPC requests.
-// Essentially, it will call function generateDPDKDeployment to generate a deployment in kubernetes.
-func (k8s *KubeController) CreateDeployment(nodeName string, funcType string, hostPort int,
-	pcie string, isPrimary string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) (string, error) {
-	deploymentAPI := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
-	deploymentConfig := k8s.generateDPDKDeployment(nodeName, funcType, hostPort, pcie, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
-	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, funcType, strconv.Itoa(hostPort))
+// Creates a CooperativeSched instance on the worker node |nodeName|,
+// In Kubernetes, the instance is run as a deployment with name "nodeName-sched".
+func (k8s *KubeController) makeSchedDeploymentSpec(nodeName string, hostPort int) unstructured.Unstructured {
+	deploymentName := fmt.Sprintf("%s-coopsched", nodeName)
 
-	_, err := k8s.dynamicClient.Resource(deploymentAPI).Namespace(k8s.namespace).Create(&deploymentConfig, metav1.CreateOptions{})
+	deployment := unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata": map[string]interface{}{
+				"name": deploymentName,
+			},
+			"spec": map[string]interface{}{
+				"replicas": 1,
+				"selector": map[string]interface{}{
+					"matchLabels": map[string]interface{}{
+						"app": deploymentName,
+					},
+				},
+				"template": map[string]interface{}{
+					"metadata": map[string]interface{}{
+						"labels": map[string]interface{}{
+							"app": deploymentName,
+						},
+					},
+					"spec": map[string]interface{}{
+						"hostPID": true,
+						"containers": []map[string]interface{}{
+							{ // Container 0
+								"securityContext": map[string]interface{}{
+									"privileged": true,
+									"runAsUser":  0,
+								},
+								// Hugepage requests equal the limts if
+								// limits are specified but requests are not.
+								"resources": map[string]interface{}{
+									"limits": map[string]interface{}{
+										"memory":        "50Mi",
+									},
+								},
+								"name":            "sched",
+								"image":           kDockerhubUser + "/coopsched:latest",
+								"imagePullPolicy": "IfNotPresent",
+								"ports": []map[string]interface{}{
+									{
+										// The ports between [50052, 51051] on the host is used
+										// for instance to receive gRPC requests.
+										"containerPort": 50051,
+										"hostPort":      hostPort,
+									},
+								},
+								"command": []string{
+									"/app/cooperative_sched",
+									"--cli=0",
+								},
+							},
+						}, // Ends containers
+						"nodeName": nodeName,
+					},
+				},
+			},
+		},
+	}
+
+	return deployment
+}
+
+// Creates a CooperativeSched instance on node |nodeName|. Assigns 
+// TCP port |hostPort| to the instance.
+func (k8s *KubeController) CreateSchedDeployment(nodeName string, hostPort int) (string, error) {
+	api := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
+	deploy := k8s.dynamicClient.Resource(api).Namespace(k8s.namespace)
+
+	spec := k8s.makeSchedDeploymentSpec(nodeName, hostPort)
+	deploymentName := fmt.Sprintf("%s-coopsched", nodeName)
+
+	_, err := deploy.Create(&spec, metav1.CreateOptions{})
 	if err != nil {
 		return "", err
 	}
+
+	return deploymentName, nil
+}
+
+// Create a NF instance with type |funcType| on node |nodeName| at core |workerCore|,
+// also assign the port |hostPort| of the host for the instance to receive gRPC requests.
+// Essentially, it will call function makeDPDKDeploymentSpec to generate a deployment in kubernetes.
+func (k8s *KubeController) CreateDeployment(nodeName string, funcType string, hostPort int,
+		pcie string, isPrimary string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) (string, error) {
+	api := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
+	deploy := k8s.dynamicClient.Resource(api).Namespace(k8s.namespace)
+
+	spec := k8s.makeDPDKDeploymentSpec(nodeName, funcType, hostPort, pcie, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, funcType, strconv.Itoa(hostPort))
+
+	_, err := deploy.Create(&spec, metav1.CreateOptions{})
+	if err != nil {
+		return "", err
+	}
+
 	glog.Infof("Create instance [%s] (pcie=%s,ingress=%s,egress=%s) on %s with port %d successfully.\n",
 		funcType, pcie, isIngress, isEgress, nodeName, hostPort)
 	return deploymentName, nil
@@ -227,13 +314,13 @@ func (k8s *KubeController) CreateDeployment(nodeName string, funcType string, ho
 
 // Delete a kubernetes deployment with the name |deploymentName|.
 func (k8s *KubeController) DeleteDeployment(deploymentName string) error {
-	deploymentAPI := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
+	api := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 	deletePolicy := metav1.DeletePropagationForeground
 	deleteOptions := metav1.DeleteOptions{
 		PropagationPolicy: &deletePolicy,
 	}
 
-	if err := k8s.dynamicClient.Resource(deploymentAPI).Namespace(k8s.namespace).Delete(deploymentName, &deleteOptions); err != nil {
+	if err := k8s.dynamicClient.Resource(api).Namespace(k8s.namespace).Delete(deploymentName, &deleteOptions); err != nil {
 		return err
 	}
 	return nil
