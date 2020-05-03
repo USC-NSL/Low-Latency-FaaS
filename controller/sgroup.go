@@ -98,6 +98,7 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 	ins, err := w.createInstance("prim", pcieIdx, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 	// Fail to create the head instance. Cleanup..
 	if err != nil {
+		glog.Errorf("Failed to create Instance. %v", err)
 		return nil
 	}
 

@@ -100,13 +100,15 @@ func (w *Worker) String() string {
 }
 
 func (w *Worker) createSched() error {
-	podName, err := kubectl.K8sHandler.CreateSchedDeployment(w.name, schedulerPort)
+	// |IndexPool| is thread-safe.
+	port := w.instancePortPool.GetNextAvailable()
+	podName, err := kubectl.K8sHandler.CreateSchedDeployment(w.name, port)
 	if err != nil {
 		return err
 	}
-	w.sched = newInstance("sched", w.ip, schedulerPort, podName)
+	w.sched = newInstance("sched", w.ip, port, podName)
 
-	schedAddr := fmt.Sprintf("%s:%d", w.ip, schedulerPort)
+	schedAddr := fmt.Sprintf("%s:%d", w.ip, port)
 	start := time.Now()
 	for time.Now().Unix() - start.Unix() < 10 {
 		err := w.SchedulerGRPCHandler.EstablishConnection(schedAddr)
@@ -115,7 +117,7 @@ func (w *Worker) createSched() error {
 		}
 
 		// Backoff..
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(1000 * time.Millisecond)
 	}
 
 	if !w.SchedulerGRPCHandler.IsConnEstablished() {
@@ -324,13 +326,16 @@ func (w *Worker) Close() error {
 	errmsg := []string{}
 
 	// Send gRPC to shutdown scheduler.
-	if res, err := w.KillSched(); err != nil {
+	res, err := w.KillSched()
+	if err != nil {
 		msg := "Connection failed when killing CooperativeSched"
 		errmsg = append(errmsg, msg)
 	} else if res.GetError().GetCode() != 0 {
 		msg := fmt.Sprintf("Failed to kill CooperativeSched. Reason: %s", res.GetError().GetErrmsg())
 		errmsg = append(errmsg, msg)
 	}
+
+	w.destroyInstance(w.sched)
 
 	// Shutdown all background go routines.
 	w.op <- SHUTDOWN

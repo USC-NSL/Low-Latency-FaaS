@@ -254,7 +254,7 @@ func (k8s *KubeController) makeSchedDeploymentSpec(nodeName string, hostPort int
 									{
 										// The ports between [50052, 51051] on the host is used
 										// for instance to receive gRPC requests.
-										"containerPort": 50051,
+										"containerPort": 10515,
 										"hostPort":      hostPort,
 									},
 								},
