@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os/exec"
+	"strings"
 
-	glog "github.com/golang/glog"
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
+	glog "github.com/golang/glog"
 )
-
-var runFaaSTest bool
 
 // The controller of the FaaS system for NFV.
 // |ToRGRPCHandler| are functions to handle gRPC requests to the ToR switch.
@@ -29,28 +28,31 @@ func NewFaaSController(isTest bool) *FaaSController {
 		workers: make(map[string]*Worker),
 		dags:    make(map[string]*DAG),
 	}
-	runFaaSTest = isTest
 
 	// Initializes all worker nodes when starting a |FaaSController|.
 	// Now core 0 is reserved for the scheduler on the machine.
 	// TODO: Replace hard-code information with reading from k8s configurations.
-	//c.createWorker("uscnsl", "204.57.7.2", 10514, 10515, 1, 7)
-	c.createWorker("ubuntu", "204.57.7.11", 10514, 10515, 1, 7)
+	//c.createWorker("uscnsl", "204.57.7.2", 1, 7)
+	c.createWorker("ubuntu", "204.57.7.11", 1, 7)
 
-	// Initializes all hugepages and NIC queues.
-	for _, w := range c.workers {
-		w.createAllFreeSGroups()
+	if !isTest {
+		// Initializes all hugepages and NIC queues.
+		for _, w := range c.workers {
+			w.createAllFreeSGroups()
+			w.createSched()
+		}
 	}
 
 	return c
 }
 
-func (c *FaaSController) createWorker(name string, ip string, vSwitchPort int, schedulerPort int,
-	coreNumOffset int, coreCount int) {
+func (c *FaaSController) createWorker(name string, ip string,
+		coreNumOffset int, coreCount int) {
 	if _, exists := c.workers[name]; exists {
 		return
 	}
-	c.workers[name] = newWorker(name, ip, vSwitchPort, schedulerPort, coreNumOffset, coreCount)
+
+	c.workers[name] = NewWorker(name, ip, coreNumOffset, coreCount)
 }
 
 func (c *FaaSController) getWorker(nodeName string) *Worker {
@@ -58,6 +60,25 @@ func (c *FaaSController) getWorker(nodeName string) *Worker {
 		return nil
 	}
 	return c.workers[nodeName]
+}
+
+// This function cleans up the FaaSController |c|.
+// Cleans up all associated FaaS worker nodes.
+func (c *FaaSController) Close() error {
+	errmsg := []string{}
+
+	for _, w := range c.workers {
+		if err := w.Close(); err != nil {
+			errmsg = append(errmsg, fmt.Sprintf("worker[%s] didn't close. Reason: %v\n", w.name, err))
+		}
+	}
+
+	if len(errmsg) > 0 {
+		return errors.New(strings.Join(errmsg, ""))
+	}
+
+	// Succeed.
+	return nil
 }
 
 // Note: CLI-only functions.
@@ -144,45 +165,37 @@ func (c *FaaSController) CreateSGroup(nodeName string, nfs []string) error {
 	return nil
 }
 
-func (c *FaaSController) DestroySGroup(nodeName string, groupId int) error {
+func (c *FaaSController) DestroySGroup(nodeName string, groupID int) error {
 	w, exists := c.workers[nodeName]
 	if !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
 
-	sg, exists := w.sgroups[groupId]
-	if !exists {
-		return errors.New(fmt.Sprintf("sg %s not found", groupId))
+	sg := w.getSGroup(groupID)
+	if sg == nil {
+		return fmt.Errorf("SGroup %d not found by worker[%s]", groupID, w.name)
 	}
 
 	return c.workers[nodeName].destroySGroup(sg)
 }
 
-func (c *FaaSController) AttachSGroup(nodeName string, groupId int, coreId int) error {
+func (c *FaaSController) AttachSGroup(nodeName string, groupID int, coreId int) error {
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
 
-	return c.workers[nodeName].attachSGroup(groupId, coreId)
+	return c.workers[nodeName].attachSGroup(groupID, coreId)
 }
 
-func (c *FaaSController) DetachSGroup(nodeName string, groupId int) error {
+func (c *FaaSController) DetachSGroup(nodeName string, groupID int) error {
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
 
-	return c.workers[nodeName].detachSGroup(groupId)
+	return c.workers[nodeName].detachSGroup(groupID)
 }
 
-// Detach and destroy all sGroups.
-func (c *FaaSController) CleanUpAllWorkers() error {
-	for _, w := range c.workers {
-		if err := w.cleanUp(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
+// Note: gRPC functions
 
 // Called when receiving gRPC request for an new instance setting up.
 // The new instance is on worker |nodeName| with allocated port |port| and TID |tid|.
@@ -203,10 +216,10 @@ func (c *FaaSController) InstanceSetUp(nodeName string, port int, tid int) error
 // Called when receiving gRPC request updating traffic info.
 // |qlen| is the NIC rx queue length. |kpps| is the traffic volume.
 // Returns error if this controller failed to update traffic info.
-func (c *FaaSController) InstanceUpdateStats(nodeName string, groupId int, qlen int, kpps int) error {
+func (c *FaaSController) InstanceUpdateStats(nodeName string, groupID int, qlen int, kpps int) error {
 	if _, exists := c.workers[nodeName]; !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
 
-	return c.workers[nodeName].updateSGroup(groupId, qlen, kpps)
+	return c.workers[nodeName].updateSGroup(groupID, qlen, kpps)
 }

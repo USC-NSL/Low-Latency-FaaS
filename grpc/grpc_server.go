@@ -6,8 +6,8 @@ import (
 	"net"
 
 	pb "github.com/USC-NSL/Low-Latency-FaaS/proto"
-	grpc "google.golang.org/grpc"
 	glog "github.com/golang/glog"
+	grpc "google.golang.org/grpc"
 )
 
 const (

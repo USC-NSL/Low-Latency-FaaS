@@ -77,3 +77,19 @@ func (handler *SchedulerGRPCHandler) DetachChain(tids []int32, core int) (*pb.Er
 	res, err := client.DetachChain(ctx, &pb.DetachChainArg{Chain: tids, Core: int32(core)})
 	return res, err
 }
+
+// Shutdown the scheduler. Restores all managed NF threads to
+// normal CFS preemptive threads.
+func (handler *SchedulerGRPCHandler) KillSched() (*pb.EmptyResponse, error) {
+	if handler.grpcConn == nil {
+		return nil, errors.New("connection does not exist")
+	}
+
+	// Add context for gRPC request to set timeout to one second
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	client := pb.NewSchedulerControlClient(handler.grpcConn)
+	res, err := client.KillSched(ctx, &pb.EmptyRequest{})
+	return res, err
+}

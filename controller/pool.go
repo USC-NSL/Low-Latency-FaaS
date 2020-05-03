@@ -84,6 +84,21 @@ func (sgPool *SGroupPool) add(newSG *SGroup) {
 	sgPool.pool = append(sgPool.pool, newSG)
 }
 
+// Returns a SGroup |sg| from the SGroupPool |sgPool|.
+func (sgPool *SGroupPool) get(groupID int) *SGroup {
+	sgPool.mutex.Lock()
+	defer sgPool.mutex.Unlock()
+
+	for _, sg := range sgPool.pool {
+		if sg.ID() == groupID {
+			return sg
+		}
+	}
+
+	glog.Errorf("SGroup[%d] not found in SGroupPool", groupID)
+	return nil
+}
+
 // Removes a SGroup (identified by its ID) from the SGroupPool |sgPool|.
 func (sgPool *SGroupPool) remove(groupID int) {
 	sgPool.mutex.Lock()

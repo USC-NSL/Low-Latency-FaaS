@@ -2,14 +2,20 @@ package controller
 
 import (
 	"errors"
-	"sync"
-	//"time"
 	"fmt"
+	"strings"
+	"sync"
+	"time"
 
-	glog "github.com/golang/glog"
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
 	kubectl "github.com/USC-NSL/Low-Latency-FaaS/kubectl"
 	utils "github.com/USC-NSL/Low-Latency-FaaS/utils"
+	glog "github.com/golang/glog"
+)
+
+const (
+	vSwitchPort = 10514
+	schedulerPort = 10515
 )
 
 // The abstraction of a worker node.
@@ -31,38 +37,29 @@ type Worker struct {
 	grpc.SchedulerGRPCHandler
 	name             string
 	ip               string
+	sched            *Instance
 	cores            map[int]*Core
-	sgroups          map[int]*SGroup
+	sgroups          []*SGroup
 	freeSGroups      []*SGroup
 	instancePortPool *utils.IndexPool
 	pciePool         *utils.IndexPool
 	insStartupPool   *InstancePool
 	op               chan FaaSOP
 	sgMutex          sync.Mutex
-	fsgMutex         sync.Mutex
 }
 
-func newWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreNumOffset int, coreNum int) *Worker {
+func NewWorker(name string, ip string, coreNumOffset int, coreNum int) *Worker {
 	// Ports taken by instances are between [50052, 51051]
 	w := Worker{
 		name:             name,
 		ip:               ip,
 		cores:            make(map[int]*Core),
-		sgroups:          make(map[int]*SGroup),
+		sgroups:          make([]*SGroup, 0),
 		freeSGroups:      make([]*SGroup, 0),
 		instancePortPool: utils.NewIndexPool(50052, 1000),
 		pciePool:         utils.NewIndexPool(0, len(PCIeMappings)),
 		insStartupPool:   NewInstancePool(),
 		op:               make(chan FaaSOP, 64),
-	}
-
-	// TODO(Zhuojin): remove VSwitchGRPCHandler.
-	//if err := w.VSwitchGRPCHandler.EstablishConnection(fmt.Sprintf("%s:%d", ip, vSwitchPort)); err != nil {
-	//	fmt.Println("Fail to connect with vSwitch: " + err.Error())
-	//}
-
-	if err := w.SchedulerGRPCHandler.EstablishConnection(fmt.Sprintf("%s:%d", ip, schedulerPort)); err != nil {
-		fmt.Println("Fail to connect with scheduler: " + err.Error())
 	}
 
 	// coreId is ranged between [coreNumOffset, coreNumOffset + coreNum)
@@ -73,19 +70,62 @@ func newWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreN
 	// Starts a background routine for maintaining |freeSGroups|
 	go w.CreateFreeSGroups(w.op)
 
+	// TODO(Zhuojin): remove VSwitchGRPCHandler.
+	//if err := w.VSwitchGRPCHandler.EstablishConnection(fmt.Sprintf("%s:%d", ip, vSwitchPort)); err != nil {
+	//	fmt.Println("Fail to connect with vSwitch: " + err.Error())
+	//}
+
+	glog.Infof("Worker[%s] is up.", w.name)
+
 	return &w
 }
 
 func (w *Worker) String() string {
+	w.sgMutex.Lock()
+	defer w.sgMutex.Unlock()
+
 	info := fmt.Sprintf("Worker [%s] at %s \n Core:", w.name, w.ip)
 	for coreId, core := range w.cores {
 		info += fmt.Sprintf("\n  %d %s", coreId, core)
 	}
-	info += "\n Free instances:"
+
+	info += "\n SGroups:"
 	for _, sg := range w.sgroups {
 		info += fmt.Sprintf("\n  %s", sg)
 	}
+
+	info += fmt.Sprintf("\n %d remaining free SGroups", len(w.freeSGroups))
+
 	return info + "\n"
+}
+
+func (w *Worker) createSched() error {
+	// |IndexPool| is thread-safe.
+	port := w.instancePortPool.GetNextAvailable()
+	podName, err := kubectl.K8sHandler.CreateSchedDeployment(w.name, port)
+	if err != nil {
+		return err
+	}
+	w.sched = newInstance("sched", w.ip, port, podName)
+
+	schedAddr := fmt.Sprintf("%s:%d", w.ip, port)
+	start := time.Now()
+	for time.Now().Unix() - start.Unix() < 10 {
+		err := w.SchedulerGRPCHandler.EstablishConnection(schedAddr)
+		if err == nil {
+			break
+		}
+
+		// Backoff..
+		time.Sleep(1000 * time.Millisecond)
+	}
+
+	if !w.SchedulerGRPCHandler.IsConnEstablished() {
+		return fmt.Errorf("Fail to connect with scheduler[%s].", schedAddr)
+	}
+
+	glog.Errorf("Connect with scheduler[%s].", schedAddr)
+	return nil
 }
 
 // Creates an NF instance |ins| with type |funcType|. After |ins|
@@ -93,6 +133,7 @@ func (w *Worker) String() string {
 // in the worker's |insStartupPool| and waits for its |tid| sent
 // from its NF thread.
 func (w *Worker) createInstance(funcType string, pcieIdx int, isPrimary string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) (*Instance, error) {
+	// Both |IndexPool| and |InstancePool| are thread-safe types.
 	port := w.instancePortPool.GetNextAvailable()
 	podName, err := kubectl.K8sHandler.CreateDeployment(w.name, funcType, port, PCIeMappings[pcieIdx], isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 	if err != nil {
@@ -112,13 +153,14 @@ func (w *Worker) createInstance(funcType string, pcieIdx int, isPrimary string, 
 // Destroys an NF |ins|. Note: this function only gets called
 // when freeing a sGroup.
 func (w *Worker) destroyInstance(ins *Instance) error {
-	glog.Infof("Delete Pod[%s]", ins.podName)
 	err := kubectl.K8sHandler.DeleteDeployment(ins.podName)
-	if err == nil {
-		// Succeed
-		w.instancePortPool.Free(ins.port)
+	if err != nil {
+		return err
 	}
-	return err
+
+	// Succeed
+	w.instancePortPool.Free(ins.port)
+	return nil
 }
 
 func (w *Worker) createAllFreeSGroups() {
@@ -128,7 +170,15 @@ func (w *Worker) createAllFreeSGroups() {
 	}
 }
 
+// Destorys and removes all free SGroups in |w.freeSGroups|. This
+// function waits for all free SGroups to finish the cleanup process.
+// Otherwise, the main thread may return before all go (cleanup)
+// routines proceed successfully. Hence, some of free SGroups may not
+// get removed up.
 func (w *Worker) destroyAllFreeSGroups() {
+	w.sgMutex.Lock()
+	defer w.sgMutex.Unlock()
+
 	var wg sync.WaitGroup
 	wg.Add(len(w.freeSGroups))
 
@@ -143,9 +193,14 @@ func (w *Worker) destroyAllFreeSGroups() {
 	wg.Wait()
 }
 
-// Returns a free sGroup |sg| in |w.freeSGroups|. |sg| is removed
-// from |w|'s freeSGroups. Returns nil if |w.freeSGroups| is empty.
+// Returns a free sGroup |sg| in |w.freeSGroups|.
+// |sg| is removed from |w|'s freeSGroups. The caller acquires |sg|.
+// No one else should acquire |sg| at the same time.
+// Returns nil if |w.freeSGroups| is empty.
 func (w *Worker) getFreeSGroup() *SGroup {
+	w.sgMutex.Lock()
+	defer w.sgMutex.Unlock()
+
 	n := len(w.freeSGroups)
 	if n >= 1 {
 		sg := w.freeSGroups[n-1]
@@ -157,12 +212,42 @@ func (w *Worker) getFreeSGroup() *SGroup {
 	return nil
 }
 
+// Destorys and removes all SGroups in |w.sgroups|.
+func (w *Worker) destroyAllSGroups() {
+	w.sgMutex.Lock()
+	defer w.sgMutex.Unlock()
+
+	for len(w.sgroups) > 0 {
+		idx := len(w.sgroups)
+		sg := w.sgroups[idx-1]
+		w.sgroups = w.sgroups[:(idx - 1)]
+
+		sg.Reset()
+		w.freeSGroups = append(w.freeSGroups, sg)
+	}
+}
+
 // Destroys a SGroup |sg|.
 // Note: Unable to destroy a SGroup which is currently attached to a core.
 func (w *Worker) destroySGroup(sg *SGroup) error {
 	sg.Reset()
 
+	w.sgMutex.Lock()
 	w.freeSGroups = append(w.freeSGroups, sg)
+	w.sgMutex.Unlock()
+
+	return nil
+}
+
+func (w *Worker) getSGroup(groupID int) *SGroup {
+	w.sgMutex.Lock()
+	defer w.sgMutex.Unlock()
+
+	for _, sg := range w.sgroups {
+		if sg.ID() == groupID {
+			return sg
+		}
+	}
 
 	return nil
 }
@@ -179,33 +264,34 @@ func (w *Worker) findAvailableCore() int {
 }
 */
 
-// Updates |qlen| and |kpps| for the sgroup with |groupId|.
+// Updates |qlen| and |kpps| for the sgroup with |groupID|.
 // TODO (Jianfeng): trigger extra scaling operations.
-func (w *Worker) updateSGroup(groupId int, qlen int, kpps int) error {
-	if _, exists := w.sgroups[groupId]; !exists {
-		return errors.New(fmt.Sprintf("sgroup %d not found", groupId))
+func (w *Worker) updateSGroup(groupID int, qlen int, kpps int) error {
+	sg := w.getSGroup(groupID)
+	if sg == nil {
+		return fmt.Errorf("SGroup %d not found on worker[%s]", groupID, w.name)
 	}
 
-	w.sgroups[groupId].incQueueLength = qlen
-	w.sgroups[groupId].pktRateKpps = kpps
+	sg.incQueueLength = qlen
+	sg.pktRateKpps = kpps
 	return nil
 }
 
 // Migrates/Schedules a SGroup with |groupId| to core |coreId|.
-func (w *Worker) attachSGroup(groupID int, coreId int) error {
-	if _, exists := w.cores[coreId]; !exists {
-		return errors.New(fmt.Sprintf("core %d not found", coreId))
+func (w *Worker) attachSGroup(groupID int, coreID int) error {
+	if _, exists := w.cores[coreID]; !exists {
+		return errors.New(fmt.Sprintf("core %d not found", coreID))
 	}
 
-	sg, exists := w.sgroups[groupID]
-	if !exists {
-		return errors.New(fmt.Sprintf("SGroup[id = %d] not found by worker[%s]", groupID, w.name))
+	sg := w.getSGroup(groupID)
+	if sg == nil {
+		return fmt.Errorf("SGroup %d not found on worker[%s]", groupID, w.name)
 	}
 
 	// Schedules |sg| on the new core.
 
 	// Send gRPC to inform scheduler.
-	if status, err := w.AttachChain(sg.tids, coreId); err != nil {
+	if status, err := w.AttachChain(sg.tids, coreID); err != nil {
 		return err
 	} else if status.GetCode() != 0 {
 		return errors.New(fmt.Sprintf("error from gRPC request AttachChain: %s", status.GetErrmsg()))
@@ -213,25 +299,16 @@ func (w *Worker) attachSGroup(groupID int, coreId int) error {
 	return nil
 }
 
-// Migrate sGroup with |groupID| from core |coreFrom| to core |coreTo|.
-func (w *Worker) migrateSGroup(groupID int, coreFrom int, coreTo int) error {
-	if err := w.detachSGroup(groupID); err != nil {
-		return err
-	}
-	if err := w.attachSGroup(groupID, coreTo); err != nil {
-		return err
-	}
-	return nil
-}
-
-// Detach sGroup with |groupID| from core |coreId| and move it to freeSGroups.
+// Detaches a SGroup, indexed by |groupID|, on its running core.
+// The SGroup is still pinned to its original running core, but won't
+// get executed.
 func (w *Worker) detachSGroup(groupID int) error {
 	// Move it from core |coreId| to freeSGroups.
 	//sGroup := w.cores[coreId].detachSGroup(groupID)
 
-	sg, exists := w.sgroups[groupID]
-	if !exists {
-		return errors.New(fmt.Sprintf("SGroup[id = %d] not found by worker[%s]", groupID, w.name))
+	sg := w.getSGroup(groupID)
+	if sg == nil {
+		return fmt.Errorf("SGroup %d not found on worker[%s]", groupID, w.name)
 	}
 
 	// Send gRPC to inform scheduler.
@@ -243,24 +320,34 @@ func (w *Worker) detachSGroup(groupID int) error {
 	return nil
 }
 
-// Detach and destroy all SGroups on the worker.
-func (w *Worker) cleanUp() error {
-	/*
-		// Detach all sGroups.
-		for coreId, core := range w.cores {
-			for len(core.sGroups) > 0 {
-				sGroup := core.sGroups[0]
-				if err := w.detachSGroup(sGroup.ID(), coreId); err != nil {
-					return err
-				}
-			}
-		}
-	*/
+// Unschedule all NF threads and shutdown CooperativeSched.
+// Destroy all SGroups (Instances), FreeSGroups on worker |w|.
+func (w *Worker) Close() error {
+	errmsg := []string{}
+
+	// Send gRPC to shutdown scheduler.
+	res, err := w.KillSched()
+	if err != nil {
+		msg := "Connection failed when killing CooperativeSched"
+		errmsg = append(errmsg, msg)
+	} else if res.GetError().GetCode() != 0 {
+		msg := fmt.Sprintf("Failed to kill CooperativeSched. Reason: %s", res.GetError().GetErrmsg())
+		errmsg = append(errmsg, msg)
+	}
+
+	w.destroyInstance(w.sched)
 
 	// Shutdown all background go routines.
 	w.op <- SHUTDOWN
 
+	// Cleans up SGroups and free SGroups.
+	w.destroyAllSGroups()
 	w.destroyAllFreeSGroups()
+
+	if len(errmsg) > 0 {
+		return errors.New(strings.Join(errmsg, ""))
+	}
+
 	fmt.Printf("worker[%s] is cleaned up\n", w.name)
 	return nil
 }
