@@ -7,7 +7,7 @@ import (
 
 // Tests of creating a new worker and initializing all NIC queues.
 func TestWorkerStartFreeSGroups(t *testing.T) {
-	w := NewWorker("ubuntu", "204.57.7.11", 10514, 10515, 1, 7)
+	w := NewWorker("ubuntu", "204.57.7.11", 1, 7)
 
 	countSGroups := w.pciePool.Size()
 	for i := 0; i < countSGroups; i++ {
@@ -33,7 +33,7 @@ func TestWorkerStartFreeSGroups(t *testing.T) {
 
 // Tests of deploying and deleting an NF DAG at a worker.
 func TestStartNFChain(t *testing.T) {
-	w := NewWorker("ubuntu", "204.57.7.11", 10514, 10515, 1, 7)
+	w := NewWorker("ubuntu", "204.57.7.11", 1, 7)
 
 	w.op <- FREE_SGROUP
 
@@ -82,5 +82,5 @@ func TestStartNFChain(t *testing.T) {
 }
 
 // Tests for Scheduling.
-func TestAttachAndDetachNFChain(t *testing.T) {
+func TestStartCooperativeSched(t *testing.T) {
 }

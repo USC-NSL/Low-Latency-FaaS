@@ -5,12 +5,17 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	//"time"
+	"time"
 
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
 	kubectl "github.com/USC-NSL/Low-Latency-FaaS/kubectl"
 	utils "github.com/USC-NSL/Low-Latency-FaaS/utils"
 	glog "github.com/golang/glog"
+)
+
+const (
+	vSwitchPort = 10514
+	schedulerPort = 10515
 )
 
 // The abstraction of a worker node.
@@ -43,7 +48,7 @@ type Worker struct {
 	sgMutex          sync.Mutex
 }
 
-func NewWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreNumOffset int, coreNum int) *Worker {
+func NewWorker(name string, ip string, coreNumOffset int, coreNum int) *Worker {
 	// Ports taken by instances are between [50052, 51051]
 	w := Worker{
 		name:             name,
@@ -70,16 +75,8 @@ func NewWorker(name string, ip string, vSwitchPort int, schedulerPort int, coreN
 	//	fmt.Println("Fail to connect with vSwitch: " + err.Error())
 	//}
 
-	if err := w.createSched(schedulerPort); err != nil {
-		glog.Errorf("Fail to create a CoopSched. %v", err)
-	}
+	glog.Infof("Worker[%s] is up.", w.name)
 
-	schedAddr := fmt.Sprintf("%s:%d", ip, schedulerPort)
-	if err := w.SchedulerGRPCHandler.EstablishConnection(schedAddr); err != nil {
-		glog.Errorf("Fail to connect with scheduler[%s]. %v", schedAddr, err)
-	}
-
-	glog.Infof("Worker[%s] is ready.", w.name)
 	return &w
 }
 
@@ -102,13 +99,30 @@ func (w *Worker) String() string {
 	return info + "\n"
 }
 
-func (w *Worker) createSched(schedPort int) error {
-	podName, err := kubectl.K8sHandler.CreateSchedDeployment(w.name, schedPort)
+func (w *Worker) createSched() error {
+	podName, err := kubectl.K8sHandler.CreateSchedDeployment(w.name, schedulerPort)
 	if err != nil {
 		return err
 	}
+	w.sched = newInstance("sched", w.ip, schedulerPort, podName)
 
-	w.sched = newInstance("sched", w.ip, schedPort, podName)
+	schedAddr := fmt.Sprintf("%s:%d", w.ip, schedulerPort)
+	start := time.Now()
+	for time.Now().Unix() - start.Unix() < 10 {
+		err := w.SchedulerGRPCHandler.EstablishConnection(schedAddr)
+		if err == nil {
+			break
+		}
+
+		// Backoff..
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	if !w.SchedulerGRPCHandler.IsConnEstablished() {
+		return fmt.Errorf("Fail to connect with scheduler[%s].", schedAddr)
+	}
+
+	glog.Errorf("Connect with scheduler[%s].", schedAddr)
 	return nil
 }
 

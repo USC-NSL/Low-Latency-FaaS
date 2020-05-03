@@ -45,9 +45,9 @@ func (e *Executor) Execute(s string) {
 	} else if s == "quit" {
 		if err := e.FaaSController.Close(); err != nil {
 			fmt.Printf("Failed to exit: %s\n", err.Error())
-		} else {
-			os.Exit(0)
 		}
+
+		os.Exit(0)
 	}
 
 	words := strings.Fields(s)

@@ -11,8 +11,6 @@ import (
 	glog "github.com/golang/glog"
 )
 
-var runFaaSTest bool
-
 // The controller of the FaaS system for NFV.
 // |ToRGRPCHandler| are functions to handle gRPC requests to the ToR switch.
 // |workers| are all the worker nodes (i.e. physical or virtual machines) in the system.
@@ -30,28 +28,31 @@ func NewFaaSController(isTest bool) *FaaSController {
 		workers: make(map[string]*Worker),
 		dags:    make(map[string]*DAG),
 	}
-	runFaaSTest = isTest
 
 	// Initializes all worker nodes when starting a |FaaSController|.
 	// Now core 0 is reserved for the scheduler on the machine.
 	// TODO: Replace hard-code information with reading from k8s configurations.
-	//c.createWorker("uscnsl", "204.57.7.2", 10514, 10515, 1, 7)
-	c.createWorker("ubuntu", "204.57.7.11", 10514, 10515, 1, 7)
+	//c.createWorker("uscnsl", "204.57.7.2", 1, 7)
+	c.createWorker("ubuntu", "204.57.7.11", 1, 7)
 
-	// Initializes all hugepages and NIC queues.
-	for _, w := range c.workers {
-		w.createAllFreeSGroups()
+	if !isTest {
+		// Initializes all hugepages and NIC queues.
+		for _, w := range c.workers {
+			w.createAllFreeSGroups()
+			w.createSched()
+		}
 	}
 
 	return c
 }
 
-func (c *FaaSController) createWorker(name string, ip string, vSwitchPort int, schedulerPort int,
-	coreNumOffset int, coreCount int) {
+func (c *FaaSController) createWorker(name string, ip string,
+		coreNumOffset int, coreCount int) {
 	if _, exists := c.workers[name]; exists {
 		return
 	}
-	c.workers[name] = NewWorker(name, ip, vSwitchPort, schedulerPort, coreNumOffset, coreCount)
+
+	c.workers[name] = NewWorker(name, ip, coreNumOffset, coreCount)
 }
 
 func (c *FaaSController) getWorker(nodeName string) *Worker {
@@ -68,7 +69,7 @@ func (c *FaaSController) Close() error {
 
 	for _, w := range c.workers {
 		if err := w.Close(); err != nil {
-			errmsg = append(errmsg, fmt.Sprintf("worker[%s] didn't close. Reason: %v\n", err))
+			errmsg = append(errmsg, fmt.Sprintf("worker[%s] didn't close. Reason: %v\n", w.name, err))
 		}
 	}
 

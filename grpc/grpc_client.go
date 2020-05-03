@@ -12,6 +12,10 @@ type GRPCClient struct {
 	grpcConn *grpc.ClientConn
 }
 
+func (client *GRPCClient) IsConnEstablished() bool {
+	return client.grpcConn != nil
+}
+
 // Starts up a connection to gRPC server with |address|.
 // |address| is a string in the form of "IP:Port".
 func (client *GRPCClient) EstablishConnection(address string) error {
