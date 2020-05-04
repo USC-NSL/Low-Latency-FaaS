@@ -16,14 +16,20 @@ const (
 
 // The abstraction of minimal scheduling unit at each CPU core.
 // |manager| manages NIC queues, memory buffers.
+// |groupID| is the unique ID of the sGroup on a worker.
 // |pcieIdx| is used to identify this sgroup.
 // |instances| are NF instances within the scheduling group.
+// |tids| is an array of all NF thread's IDs.
 // |QueueLength, QueueCapacity| are the NIC queue information.
 // |pktRateKpps| describes the observed traffic.
 // |worker| is the worker node that the sGroup attached to. Set -1 when not attached.
 // |coreID| is the core that the sGroup scheduled to.
-// |groupID| is the unique identifier of the sGroup on a worker. Technically, it is equal to the tid of its first NF instance.
-// |tids| is an array of the tid of every instance in it.
+// Note: 
+// 1. All Instances in |instances| is placed in a InsStartupPool;
+// 2. If |tids| is empty, it means that one or more NF threadsl
+// are not ready. CooperativeSched should NOT schedule these threads.
+// 3. |maxRateKpps| is the profiling packet rate of running this SGroup
+// on a single core.
 type SGroup struct {
 	manager          *Instance
 	groupID          int
@@ -100,12 +106,13 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 	vPortIncIdx := 0
 	vPortOutIdx := 0
 	ins, err := w.createInstance("prim", pcieIdx, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
-	// Fail to create the head instance. Cleanup..
 	if err != nil {
+		// Fail to create the head instance. Cleanup..
 		glog.Errorf("Failed to create Instance. %v", err)
 		return nil
 	}
 
+	// Succeed.
 	sg.manager = ins
 	return &sg
 }
@@ -176,6 +183,14 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 			glog.Errorf("Failed to notify the scheduler. %s", err)
 		}
 	}
+}
+
+// Returns true if all instances are ready to be scheduled.
+func (sg *SGroup) IsReady() bool {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	return len(sg.tids) > 0
 }
 
 // TODO (Jianfeng): trigger extra scaling operations.

@@ -119,12 +119,23 @@ func (c *FaaSController) ConnectNFs(user string, upNF string, downNF string) err
 }
 
 // Starts running a NF DAG.
-func (c *FaaSController) ActivateDAG(user string) {
-	for user, dag := range c.dags {
-		if user == user || user == "all" {
-			dag.Activate()
-		}
+func (c *FaaSController) ActivateDAG(user string) error {
+	dag, exists := c.dags[user]
+	if !exists {
+		return errors.New(fmt.Sprintf("User [%s] has no NFs.", user))
 	}
+
+	for {
+		sg := c.getFreeSGroup()
+		if sg == nil {
+			break
+		}
+
+		sg.worker.createSGroup(sg, dag)
+	}
+
+	dag.addFlow("", "", 0, 8080, 0)
+	return nil
 }
 
 // Prints all DAGs managed by |FaaSController|.

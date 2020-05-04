@@ -97,6 +97,8 @@ func (w *Worker) schedule() {
 	coreID := 1
 	load := 0
 	for _, sg := range w.sgroups {
+		if !sg.IsReady() { continue }
+
 		sgLoad := sg.GetLoad()
 
 		if load + sgLoad < 80 {
@@ -110,6 +112,9 @@ func (w *Worker) schedule() {
 		}
 
 		// Sends a gRPC request to enforce the scheduling.
-		sg.attachSGroup(coreID)
+		err := sg.attachSGroup(coreID)
+		if err != nil {
+			glog.Errorf("Failed to attach SGroup[%d] to Core[%d]", sg.ID(), coreID)
+		}
 	}
 }
