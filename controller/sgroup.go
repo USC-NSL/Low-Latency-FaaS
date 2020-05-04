@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"sync"
+	"errors"
 
 	glog "github.com/golang/glog"
 )
@@ -10,6 +11,7 @@ import (
 const (
 	NIC_RX_QUEUE_LENGTH = 4096
 	NIC_TX_QUEUE_LENGTH = 4096
+	INVALID_CORE_ID = -1
 )
 
 // The abstraction of minimal scheduling unit at each CPU core.
@@ -19,7 +21,7 @@ const (
 // |QueueLength, QueueCapacity| are the NIC queue information.
 // |pktRateKpps| describes the observed traffic.
 // |worker| is the worker node that the sGroup attached to. Set -1 when not attached.
-// |coreId| is the core that the sGroup scheduled to.
+// |coreID| is the core that the sGroup scheduled to.
 // |groupID| is the unique identifier of the sGroup on a worker. Technically, it is equal to the tid of its first NF instance.
 // |tids| is an array of the tid of every instance in it.
 type SGroup struct {
@@ -33,8 +35,9 @@ type SGroup struct {
 	outQueueLength   int
 	outQueueCapacity int
 	pktRateKpps      int
+	maxRateKpps      int
 	worker           *Worker
-	coreId           int
+	coreID           int
 	mutex            sync.Mutex
 }
 
@@ -86,8 +89,9 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 		outQueueLength:   0,
 		outQueueCapacity: NIC_TX_QUEUE_LENGTH,
 		pktRateKpps:      0,
+		maxRateKpps:      1000,
 		worker:           w,
-		coreId:           -1,
+		coreID:           INVALID_CORE_ID,
 	}
 
 	isPrimary := "true"
@@ -183,9 +187,61 @@ func (sg *SGroup) UpdateTrafficInfo(qlen int, kpps int) {
 	sg.pktRateKpps = kpps
 }
 
-func (sg *SGroup) GetTrafficRate() int {
+func (sg *SGroup) GetPktRate() int {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
 	return sg.pktRateKpps
+}
+
+func (sg *SGroup) GetLoad() int {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	return 100 * sg.pktRateKpps / sg.maxRateKpps
+}
+
+func (sg *SGroup) UpdateCoreID(coreID int) {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	sg.coreID = coreID
+}
+
+// Migrates/Schedules a SGroup with |groupId| to core |coreId|.
+func (sg *SGroup) attachSGroup(coreID int) error {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	if _, exists := sg.worker.cores[coreID]; !exists {
+		return errors.New(fmt.Sprintf("core[%d] is not managed by FaaSController", coreID))
+	}
+
+	// Schedules |sg| on the new core via a gRPC request.
+	if status, err := sg.worker.AttachChain(sg.tids, coreID); err != nil {
+		return err
+	} else if status.GetCode() != 0 {
+		return errors.New(fmt.Sprintf("error from gRPC request AttachChain: %s", status.GetErrmsg()))
+	}
+
+	sg.coreID = coreID
+	return nil
+}
+
+func (sg *SGroup) detachSGroup() error {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	if sg.coreID == INVALID_CORE_ID {
+		return fmt.Errorf("SGroup[%d] is not running", sg.ID())
+	}
+
+	// Send gRPC to inform scheduler.
+	if status, err := sg.worker.DetachChain(sg.tids, 0); err != nil {
+		return err
+	} else if status.GetCode() != 0 {
+		return errors.New(fmt.Sprintf("error from gRPC request DetachChain: %s", status.GetErrmsg()))
+	}
+
+	return nil
 }

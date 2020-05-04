@@ -58,22 +58,33 @@ func (insPool *InstancePool) remove(port int) {
 	delete(insPool.pool, port)
 }
 
-type SGroupPool []*SGroup
+// Implements Len, Less and Swap for using "sort" package.
+type SGroupSlice []*SGroup
 
-func (pool SGroupPool) Len() int {
+func (pool SGroupSlice) Len() int {
 	return len(pool)
 }
 
-func (pool SGroupPool) Less(i, j int) bool {
-	return pool[i].pktRateKpps < pool[j].pktRateKpps
+func (pool SGroupSlice) Less(i, j int) bool {
+	return pool[i].GetPktRate() < pool[j].GetPktRate()
 }
 
-func (pool SGroupPool) Swap(i, j int) {
+func (pool SGroupSlice) Swap(i, j int) {
 	pool[i], pool[j] = pool[j], pool[i]
 }
 
-/*
-// A thread-safe implementation of SGroupPool
+// A thread-safe implementation of SGroupSlice
+type SGroupPool struct {
+	pool SGroupSlice
+	mutex sync.Mutex
+}
+
+func NewSGroupPool() *SGroupPool {
+	return &SGroupPool{
+		pool: make([]*SGroup, 0),
+	}
+}
+
 // Adds a SGroup |newSG| into the SGroupPool |sgPool|.
 func (sgPool *SGroupPool) add(newSG *SGroup) {
 	sgPool.mutex.Lock()
@@ -118,4 +129,3 @@ func (sgPool *SGroupPool) remove(groupID int) {
 
 	glog.Errorf("Try to remove SGroup[%d], not found in SGroupPool", groupID)
 }
-*/

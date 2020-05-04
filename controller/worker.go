@@ -39,8 +39,8 @@ type Worker struct {
 	ip               string
 	sched            *Instance
 	cores            map[int]*Core
-	sgroups          SGroupPool
-	freeSGroups      SGroupPool
+	sgroups          SGroupSlice
+	freeSGroups      SGroupSlice
 	instancePortPool *utils.IndexPool
 	pciePool         *utils.IndexPool
 	insStartupPool   *InstancePool

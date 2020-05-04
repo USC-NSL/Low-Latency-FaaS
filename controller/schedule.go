@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+
+	glog "github.com/golang/glog"
 )
 
 // This is the place to implement resource allocation.
@@ -82,12 +84,32 @@ func (c *FaaSController) getFreeSGroup() *SGroup {
 }
 
 // The per-worker NF thread scheduler.
-// This function monitors traffic loads at all deployed SGroups.
+// This function monitors traffic loads for all deployed SGroups.
 // It tries to pack SGroups into a minimum number of CPU cores.
-// Algorithm: Best Fit Decreasing
+// Algorithm: Best Fit Decreasing.
 func (w *Worker) schedule() {
+	// This function stops all updates on Worker |w|.
 	w.sgMutex.Lock()
 	defer w.sgMutex.Unlock()
 
-	sort.Sort(w.sgroups)
+	sort.Sort(sort.Reverse(w.sgroups))
+
+	coreID := 1
+	load := 0
+	for _, sg := range w.sgroups {
+		sgLoad := sg.GetLoad()
+
+		if load + sgLoad < 80 {
+			load = load + sgLoad
+		} else if (coreID < 7) {
+			coreID += 1
+			load = sgLoad
+		} else {
+			glog.Errorf("Worker[%s] runs out of cores", w.name)
+			break
+		}
+
+		// Sends a gRPC request to enforce the scheduling.
+		sg.attachSGroup(coreID)
+	}
 }

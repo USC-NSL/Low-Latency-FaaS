@@ -5,8 +5,8 @@ import (
 )
 
 // The abstraction of CPU core.
-// |sGroups| is a chain of instances in the core. sGroup is the minimal scheduling unit and will
-//           run to completion (without preemption) for a batch of packets when it is scheduled.
+// |sGroups| contains all sgroups managed by this core.
+// Each SGroup is a minimal scheduling unit and is run-to-completion.
 type Core struct {
 	sGroups []*SGroup
 }
