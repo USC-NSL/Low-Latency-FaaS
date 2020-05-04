@@ -39,8 +39,8 @@ type Worker struct {
 	ip               string
 	sched            *Instance
 	cores            map[int]*Core
-	sgroups          []*SGroup
-	freeSGroups      []*SGroup
+	sgroups          SGroupPool
+	freeSGroups      SGroupPool
 	instancePortPool *utils.IndexPool
 	pciePool         *utils.IndexPool
 	insStartupPool   *InstancePool
@@ -249,31 +249,6 @@ func (w *Worker) getSGroup(groupID int) *SGroup {
 		}
 	}
 
-	return nil
-}
-
-/*
-// TODO: Adjust core selection strategy.
-func (w *Worker) findAvailableCore() int {
-	for coreId, core := range w.cores {
-		if len(core.sGroups) == 0 {
-			return coreId
-		}
-	}
-	return -1
-}
-*/
-
-// Updates |qlen| and |kpps| for the sgroup with |groupID|.
-// TODO (Jianfeng): trigger extra scaling operations.
-func (w *Worker) updateSGroup(groupID int, qlen int, kpps int) error {
-	sg := w.getSGroup(groupID)
-	if sg == nil {
-		return fmt.Errorf("SGroup %d not found on worker[%s]", groupID, w.name)
-	}
-
-	sg.incQueueLength = qlen
-	sg.pktRateKpps = kpps
 	return nil
 }
 

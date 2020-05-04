@@ -58,17 +58,22 @@ func (insPool *InstancePool) remove(port int) {
 	delete(insPool.pool, port)
 }
 
-type SGroupPool struct {
-	pool  []*SGroup
-	mutex sync.Mutex
+type SGroupPool []*SGroup
+
+func (pool SGroupPool) Len() int {
+	return len(pool)
 }
 
-func NewSGroupPool() *SGroupPool {
-	return &SGroupPool{
-		pool: make([]*SGroup, 0),
-	}
+func (pool SGroupPool) Less(i, j int) bool {
+	return pool[i].pktRateKpps < pool[j].pktRateKpps
 }
 
+func (pool SGroupPool) Swap(i, j int) {
+	pool[i], pool[j] = pool[j], pool[i]
+}
+
+/*
+// A thread-safe implementation of SGroupPool
 // Adds a SGroup |newSG| into the SGroupPool |sgPool|.
 func (sgPool *SGroupPool) add(newSG *SGroup) {
 	sgPool.mutex.Lock()
@@ -113,3 +118,4 @@ func (sgPool *SGroupPool) remove(groupID int) {
 
 	glog.Errorf("Try to remove SGroup[%d], not found in SGroupPool", groupID)
 }
+*/

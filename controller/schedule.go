@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"sort"
 )
 
 // This is the place to implement resource allocation.
@@ -80,37 +81,13 @@ func (c *FaaSController) getFreeSGroup() *SGroup {
 	return nil
 }
 
-/*
-// Find available worker to create a new |sGroup|.
-// Return (sGroup, coreId, error).
-// If unavailable to allocate, return (nil, -1, error).
-func (c *FaaSController) FindCoreToServeSGroup(funcTypes []string) (*SGroup, int, error) {
-	// TODO: Modify allocating strategy
-	for _, worker := range c.workers {
-		// TODO: Confirm there is enough pci for creating container.
-		if coreId := worker.findAvailableCore(); coreId != -1 {
-			if sGroup, err := worker.createSGroup(funcTypes); err != nil {
-				return nil, -1, err
-			} else {
-				return sGroup, coreId, err
-			}
-		}
-	}
-	return nil, -1, errors.New(fmt.Sprintf("could not find available worker"))
-}
-*/
-
 // The per-worker NF thread scheduler.
-func (w *Worker) schedule() error {
-	/*
-		// TODO: rewrite the CPU scheduling algorithm.
-		sGroup, coreId, err := c.FindCoreToServeSGroup(funcTypes)
-		if err != nil {
-			return "", err
-		}
-		sGroup.worker.attachSGroup(sGroup.groupId, coreId)
-		// TODO: Packet loss due to busy waiting
-		return dmacMappings[sGroup.pcieIdx], nil
-	*/
-	return nil
+// This function monitors traffic loads at all deployed SGroups.
+// It tries to pack SGroups into a minimum number of CPU cores.
+// Algorithm: Best Fit Decreasing
+func (w *Worker) schedule() {
+	w.sgMutex.Lock()
+	defer w.sgMutex.Unlock()
+
+	sort.Sort(w.sgroups)
 }

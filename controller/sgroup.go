@@ -173,3 +173,19 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 		}
 	}
 }
+
+// TODO (Jianfeng): trigger extra scaling operations.
+func (sg *SGroup) UpdateTrafficInfo(qlen int, kpps int) {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	sg.incQueueLength = qlen
+	sg.pktRateKpps = kpps
+}
+
+func (sg *SGroup) GetTrafficRate() int {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	return sg.pktRateKpps
+}

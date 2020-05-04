@@ -217,9 +217,16 @@ func (c *FaaSController) InstanceSetUp(nodeName string, port int, tid int) error
 // |qlen| is the NIC rx queue length. |kpps| is the traffic volume.
 // Returns error if this controller failed to update traffic info.
 func (c *FaaSController) InstanceUpdateStats(nodeName string, groupID int, qlen int, kpps int) error {
-	if _, exists := c.workers[nodeName]; !exists {
-		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
+	w, exists := c.workers[nodeName]
+	if !exists {
+		return fmt.Errorf("Worker[%s] does not exist", nodeName)
 	}
 
-	return c.workers[nodeName].updateSGroup(groupID, qlen, kpps)
+	sg := w.getSGroup(groupID)
+	if sg == nil {
+		return fmt.Errorf("SGroup[%d] does not exist on worker[%s]", groupID, w.name)
+	}
+
+	sg.UpdateTrafficInfo(qlen, kpps)
+	return nil
 }
