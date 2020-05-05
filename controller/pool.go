@@ -75,7 +75,7 @@ func (pool SGroupSlice) Swap(i, j int) {
 
 // A thread-safe implementation of SGroupSlice
 type SGroupPool struct {
-	pool SGroupSlice
+	pool  SGroupSlice
 	mutex sync.Mutex
 }
 

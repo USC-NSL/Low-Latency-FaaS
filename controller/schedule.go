@@ -100,13 +100,15 @@ func (w *Worker) schedule() {
 	coreID := 1
 	load := 0
 	for _, sg := range w.sgroups {
-		if !sg.IsReady() { continue }
+		if !sg.IsReady() {
+			continue
+		}
 
 		sgLoad := sg.GetLoad()
 
-		if load + sgLoad < 80 {
+		if load+sgLoad < 80 {
 			load = load + sgLoad
-		} else if (coreID < 7) {
+		} else if coreID < 7 {
 			coreID += 1
 			load = sgLoad
 		} else {

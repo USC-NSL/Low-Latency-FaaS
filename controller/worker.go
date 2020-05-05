@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	vSwitchPort = 10514
+	vSwitchPort   = 10514
 	schedulerPort = 10515
 )
 
@@ -110,7 +110,7 @@ func (w *Worker) createSched() error {
 
 	schedAddr := fmt.Sprintf("%s:%d", w.ip, port)
 	start := time.Now()
-	for time.Now().Unix() - start.Unix() < 10 {
+	for time.Now().Unix()-start.Unix() < 10 {
 		err := w.SchedulerGRPCHandler.EstablishConnection(schedAddr)
 		if err == nil {
 			break

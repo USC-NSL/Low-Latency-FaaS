@@ -47,7 +47,7 @@ func NewFaaSController(isTest bool) *FaaSController {
 }
 
 func (c *FaaSController) createWorker(name string, ip string,
-		coreNumOffset int, coreCount int) {
+	coreNumOffset int, coreCount int) {
 	if _, exists := c.workers[name]; exists {
 		return
 	}

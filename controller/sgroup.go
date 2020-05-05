@@ -1,9 +1,9 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"sync"
-	"errors"
 
 	glog "github.com/golang/glog"
 )
@@ -11,7 +11,7 @@ import (
 const (
 	NIC_RX_QUEUE_LENGTH = 4096
 	NIC_TX_QUEUE_LENGTH = 4096
-	INVALID_CORE_ID = -1
+	INVALID_CORE_ID     = -1
 )
 
 // The abstraction of minimal scheduling unit at each CPU core.
@@ -24,7 +24,7 @@ const (
 // |pktRateKpps| describes the observed traffic.
 // |worker| is the worker node that the sGroup attached to. Set -1 when not attached.
 // |coreID| is the core that the sGroup scheduled to.
-// Note: 
+// Note:
 // 1. All Instances in |instances| is placed in a InsStartupPool;
 // 2. If |tids| is empty, it means that one or more NF threadsl
 // are not ready. CooperativeSched should NOT schedule these threads.
