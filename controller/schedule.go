@@ -23,20 +23,23 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 	srcPort uint32, dstPort uint32, proto uint32) (string, error) {
 	var dag *DAG = nil
 	for _, d := range c.dags {
-		if d.Match(srcIP, dstIP, srcPort, dstPort, proto) {
+		if d.Match(srcIP, dstIP, srcPort, dstPort, proto) || true {
 			dag = d
+			break
 		}
 	}
 
 	// The flow does not match any activated DAGs. Just ignore it.
 	// TODO(Jianfeng): handle the drop case properly.
 	if dag == nil || (!dag.isActive) {
-		return "None", nil
+		glog.Infof("This new flow does not match any DAG.")
+		return "none", nil
 	}
 
 	var sg *SGroup = nil
 	// Picks an active SGroup |sg| and assigns the flow to it.
 	if sg = dag.findActiveSGroup(); sg != nil {
+		glog.Infof("SGroup[%d], %s", sg.ID(), dmacMappings[sg.pcieIdx])
 		return dmacMappings[sg.pcieIdx], nil
 	}
 
@@ -54,7 +57,7 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 	// All active SGroups are running heavily. No free SGroups
 	// are available. Just drop the packet. (Ideally, we should
 	// never reach here if the cluster has enough resources.)
-	return "None", errors.New(fmt.Sprintf("No enough resources"))
+	return "none", errors.New(fmt.Sprintf("No enough resources"))
 }
 
 // Selects an active |SGroup| for the logical NF DAG |g|. Picks

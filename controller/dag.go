@@ -131,6 +131,7 @@ func (g *DAG) Activate() error {
 		curr = g.NFMap[curr.nextNFs[0]]
 	}
 
+	g.isActive = true
 	fmt.Printf("Activated chains: %v\n", g.chains)
 	return nil
 }

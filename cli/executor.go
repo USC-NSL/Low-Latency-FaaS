@@ -134,5 +134,11 @@ func (e *Executor) Execute(s string) {
 	} else if words[0] == "activate" && len(words) >= 2 {
 		user := words[1]
 		e.FaaSController.ActivateDAG(user)
+	} else if words[0] == "exp" {
+		user := "a"
+		e.FaaSController.AddNF(user, "chacha")
+		e.FaaSController.AddNF(user, "none")
+		e.FaaSController.ConnectNFs(user, "chacha", "none")
+		e.FaaSController.ActivateDAG(user)
 	}
 }

@@ -126,6 +126,11 @@ class ThriftInterface(object):
             '21/0': kSwitchPortWorker2, \
             '19/0': kSwitchPortTraffic,}
 
+    def __del__(self):
+        # Close the thrift connection.
+        self.conn_mgr.client_cleanup(self.sess_hdl)
+        self._transport.close()
+
     # Returns the number of entries in the table with |table_name|.
     def dump_table(self, table_name):
         command = 'self.client.%s_get_entry_count' %(table_name)
@@ -379,7 +384,7 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
     def dump_table_entry(self, table_name):
         if table_name not in self._tables:
             print "Error: invalid table name"
-            return
+            return 0
 
         return self._interface.dump_table(table_name)
 
@@ -419,6 +424,7 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
             print "Error: Duplicated entry (flow)"
             return
 
+        print self.dump_table_entry(table_name)
         # |entry_handler| is an integer that represents the rule index.
         entry_handler = self._interface.insert_exact_match_rule(table_name, action, match_spec, action_spec)
         # Stores the entry in a dict maintained by the table.
@@ -426,7 +432,7 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
 
     def process_cpu_pkt(self, packet):
         try:
-            print 'Get a packet'
+            #print 'Get a packet'
             if IP not in packet or TCP not in packet:
                 return
 
@@ -441,6 +447,9 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
 
             faas_client = faas_rpc.FaaSControlStub(self._faas_channel)
             response = faas_client.UpdateFlow(flow_info)
+
+            if response.dmac == "none":
+                return
 
             table_name = "faas_conn_table"
             action = "faas_conn_table_hit"

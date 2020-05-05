@@ -125,6 +125,9 @@ func (c *FaaSController) ActivateDAG(user string) error {
 		return errors.New(fmt.Sprintf("User [%s] has no NFs.", user))
 	}
 
+	dag.addFlow("", "", 0, 8080, 0)
+	dag.Activate()
+
 	for {
 		sg := c.getFreeSGroup()
 		if sg == nil {
@@ -134,7 +137,7 @@ func (c *FaaSController) ActivateDAG(user string) error {
 		sg.worker.createSGroup(sg, dag)
 	}
 
-	dag.addFlow("", "", 0, 8080, 0)
+	glog.Info("DAG is activated.")
 	return nil
 }
 
@@ -211,12 +214,13 @@ func (c *FaaSController) DetachSGroup(nodeName string, groupID int) error {
 // Called when receiving gRPC request for an new instance setting up.
 // The new instance is on worker |nodeName| with allocated port |port| and TID |tid|.
 func (c *FaaSController) InstanceSetUp(nodeName string, port int, tid int) error {
-	if _, exists := c.workers[nodeName]; !exists {
-		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
+	w, exists := c.workers[nodeName]
+	if !exists {
+		return fmt.Errorf("Worker[%s] does not exist", nodeName)
 	}
 
-	ins := c.workers[nodeName].insStartupPool.get(port)
-	if ins.sg == nil {
+	ins := w.insStartupPool.get(port)
+	if ins == nil || ins.sg == nil {
 		return errors.New(fmt.Sprintf("SGroup not found"))
 	}
 
@@ -227,17 +231,17 @@ func (c *FaaSController) InstanceSetUp(nodeName string, port int, tid int) error
 // Called when receiving gRPC request updating traffic info.
 // |qlen| is the NIC rx queue length. |kpps| is the traffic volume.
 // Returns error if this controller failed to update traffic info.
-func (c *FaaSController) InstanceUpdateStats(nodeName string, groupID int, qlen int, kpps int) error {
+func (c *FaaSController) InstanceUpdateStats(nodeName string, port int, qlen int, kpps int) error {
 	w, exists := c.workers[nodeName]
 	if !exists {
 		return fmt.Errorf("Worker[%s] does not exist", nodeName)
 	}
 
-	sg := w.getSGroup(groupID)
-	if sg == nil {
-		return fmt.Errorf("SGroup[%d] does not exist on worker[%s]", groupID, w.name)
+	ins := w.insStartupPool.get(port)
+	if ins == nil || ins.sg == nil {
+		return errors.New(fmt.Sprintf("SGroup not found"))
 	}
 
-	sg.UpdateTrafficInfo(qlen, kpps)
+	ins.sg.UpdateTrafficInfo(qlen, kpps)
 	return nil
 }
