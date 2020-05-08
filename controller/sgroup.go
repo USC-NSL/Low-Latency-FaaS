@@ -34,6 +34,7 @@ type SGroup struct {
 	manager          *Instance
 	groupID          int
 	pcieIdx          int
+	isActive         bool
 	instances        []*Instance
 	tids             []int32
 	incQueueLength   int
@@ -88,6 +89,7 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 	sg := SGroup{
 		groupID:          pcieIdx,
 		pcieIdx:          pcieIdx,
+		isActive:         false,
 		instances:        make([]*Instance, 0),
 		tids:             make([]int32, 0),
 		incQueueLength:   0,
@@ -95,7 +97,7 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 		outQueueLength:   0,
 		outQueueCapacity: NIC_TX_QUEUE_LENGTH,
 		pktRateKpps:      0,
-		maxRateKpps:      1000,
+		maxRateKpps:      802,
 		worker:           w,
 		coreID:           INVALID_CORE_ID,
 	}
@@ -126,7 +128,7 @@ func (sg *SGroup) String() string {
 			info += fmt.Sprintf("->%s", ins)
 		}
 	}
-	return info + fmt.Sprintf("](id=%d, pcie=%s, q=%d, pps=%d kpps)", sg.groupID, PCIeMappings[sg.pcieIdx], sg.incQueueLength, sg.pktRateKpps)
+	return info + fmt.Sprintf("](id=%d, pcie=%s, q=%d, pps=%d kpps, load=%d)", sg.groupID, PCIeMappings[sg.pcieIdx], sg.incQueueLength, sg.pktRateKpps, 100 * sg.pktRateKpps / sg.maxRateKpps)
 }
 
 func (sg *SGroup) ID() int {
@@ -178,9 +180,18 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 
 		// Sends gRPC request to inform the scheduler.
 		glog.Infof("SGroup[%d] is ready. Notify the scheduler", sg.ID())
-		_, err := sg.worker.SetupChain(sg.tids)
-		if err != nil {
+
+		w := sg.worker
+		if _, err := w.SetupChain(sg.tids); err != nil {
 			glog.Errorf("Failed to notify the scheduler. %s", err)
+		}
+
+		if err := w.attachSGroup(sg.ID(), 1); err != nil {
+			glog.Errorf("Failed to attach SGroup[%d] on core #1. %s", sg.ID(), err)
+		}
+
+		if err := w.detachSGroup(sg.ID()); err != nil {
+			glog.Errorf("Failed to detach SGroup[%d] on core #1. %s", sg.ID(), err)
 		}
 	}
 }
@@ -193,13 +204,39 @@ func (sg *SGroup) IsReady() bool {
 	return len(sg.tids) > 0
 }
 
+func (sg *SGroup) IsActive() bool {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	return sg.isActive
+}
+
 // TODO (Jianfeng): trigger extra scaling operations.
+// |sg| turns active if it has packets in its NIC queue, and turns
+// inactive if it has zero traffic rate and zero queue length.
 func (sg *SGroup) UpdateTrafficInfo(qlen int, kpps int) {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
 	sg.incQueueLength = qlen
 	sg.pktRateKpps = kpps
+
+	if sg.isActive {
+		if qlen == 0 && kpps == 0 {
+			sg.isActive = false
+		}
+	} else {
+		if qlen > 0 {
+			sg.isActive = true
+		}
+	}
+}
+
+func (sg *SGroup) GetQlen() int {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	return sg.incQueueLength
 }
 
 func (sg *SGroup) GetPktRate() int {

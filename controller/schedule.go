@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	glog "github.com/golang/glog"
 )
@@ -21,7 +22,7 @@ import (
 // TODO: Complete the reasons for returning errors.
 func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 	srcPort uint32, dstPort uint32, proto uint32) (string, error) {
-	return "00:00:00:00:00:01", nil
+	//return "00:00:00:00:00:01", nil
 	var dag *DAG = nil
 	for _, d := range c.dags {
 		if d.Match(srcIP, dstIP, srcPort, dstPort, proto) || true {
@@ -40,7 +41,7 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 	var sg *SGroup = nil
 	// Picks an active SGroup |sg| and assigns the flow to it.
 	if sg = dag.findActiveSGroup(); sg != nil {
-		glog.Infof("SGroup[%d], %s", sg.ID(), dmacMappings[sg.pcieIdx])
+		//glog.Infof("SGroup[%d], mac=%s, load=%d", sg.ID(), dmacMappings[sg.pcieIdx], sg.GetLoad())
 		return dmacMappings[sg.pcieIdx], nil
 	}
 
@@ -66,6 +67,11 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 func (g *DAG) findActiveSGroup() *SGroup {
 	var selected *SGroup = nil
 	for _, sg := range g.sgroups {
+		if sg.GetLoad() > 80 {
+			// Skips overloaded SGroups.
+			continue
+		}
+
 		if selected == nil {
 			selected = sg
 		} else if selected.pktRateKpps < sg.pktRateKpps {
@@ -91,8 +97,8 @@ func (c *FaaSController) getFreeSGroup() *SGroup {
 // This function monitors traffic loads for all deployed SGroups.
 // It tries to pack SGroups into a minimum number of CPU cores.
 // Algorithm: Best Fit Decreasing.
-func (w *Worker) schedule() {
-	// This function stops all updates on Worker |w|.
+func (w *Worker) scheduleOnce() {
+	// Stops all updates on Worker |w| temporally.
 	w.sgMutex.Lock()
 	defer w.sgMutex.Unlock()
 
@@ -100,14 +106,15 @@ func (w *Worker) schedule() {
 
 	coreID := 1
 	load := 0
+
 	for _, sg := range w.sgroups {
-		if !sg.IsReady() {
+		if !sg.IsReady() || !sg.IsActive() {
 			continue
 		}
 
 		sgLoad := sg.GetLoad()
 
-		if load+sgLoad < 80 {
+		if load + sgLoad < 90 {
 			load = load + sgLoad
 		} else if coreID < 7 {
 			coreID += 1
@@ -117,10 +124,26 @@ func (w *Worker) schedule() {
 			break
 		}
 
-		// Sends a gRPC request to enforce the scheduling.
-		err := sg.attachSGroup(coreID)
-		if err != nil {
-			glog.Errorf("Failed to attach SGroup[%d] to Core[%d]", sg.ID(), coreID)
+		// Sends a gRPC request to enforce scheduling.
+		if sg.GetQlen() > 0 {
+			if err := sg.attachSGroup(coreID); err != nil {
+				glog.Errorf("Failed to attach SGroup[%d] to Core[%d]", sg.ID(), coreID)
+			}
+		}
+	}
+}
+
+// Go routine that runs on each worker to rebalance traffic loads
+// among available CPU cores.
+func (w *Worker) ScheduleLoop() {
+	for {
+		select {
+		case <-w.schedOp:
+			w.wg.Done()
+			return
+		default:
+			w.scheduleOnce()
+			time.Sleep(500 * time.Millisecond)
 		}
 	}
 }

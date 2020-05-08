@@ -49,7 +49,8 @@ func (w *Worker) CreateFreeSGroups(op chan FaaSOP) {
 		}
 
 		if msg == SHUTDOWN {
-			break
+			w.wg.Done()
+			return
 		}
 	}
 }

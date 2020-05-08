@@ -32,6 +32,9 @@ const (
 // This is to prevent conflicts on host TCP ports.
 // |pciePool| manages pcie port taken by sGroup on the node.
 // |insStartupPool| is a pool for instances that are on start-up.
+// |op| is a channle to FreeSGroup maintainer(go routine).
+// |wg| is a waiting group for all go routines of this worker.
+// |sgMutex| is for protecting |sgroups| and |freeSGroups|.
 type Worker struct {
 	grpc.VSwitchGRPCHandler
 	grpc.SchedulerGRPCHandler
@@ -45,6 +48,8 @@ type Worker struct {
 	pciePool         *utils.IndexPool
 	insStartupPool   *InstancePool
 	op               chan FaaSOP
+	schedOp          chan FaaSOP
+	wg               sync.WaitGroup
 	sgMutex          sync.Mutex
 }
 
@@ -60,6 +65,7 @@ func NewWorker(name string, ip string, coreNumOffset int, coreNum int) *Worker {
 		pciePool:         utils.NewIndexPool(0, len(PCIeMappings)),
 		insStartupPool:   NewInstancePool(),
 		op:               make(chan FaaSOP, 64),
+		schedOp:          make(chan FaaSOP, 64),
 	}
 
 	// coreId is ranged between [coreNumOffset, coreNumOffset + coreNum)
@@ -68,7 +74,9 @@ func NewWorker(name string, ip string, coreNumOffset int, coreNum int) *Worker {
 	}
 
 	// Starts a background routine for maintaining |freeSGroups|
+	w.wg.Add(2)
 	go w.CreateFreeSGroups(w.op)
+	go w.ScheduleLoop()
 
 	// TODO(Zhuojin): remove VSwitchGRPCHandler.
 	//if err := w.VSwitchGRPCHandler.EstablishConnection(fmt.Sprintf("%s:%d", ip, vSwitchPort)); err != nil {
@@ -165,7 +173,7 @@ func (w *Worker) destroyInstance(ins *Instance) error {
 
 func (w *Worker) createAllFreeSGroups() {
 	//for i := 0; i < w.pciePool.Size(); i++ {
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 4; i++ {
 		w.op <- FREE_SGROUP
 	}
 }
@@ -300,7 +308,12 @@ func (w *Worker) detachSGroup(groupID int) error {
 func (w *Worker) Close() error {
 	errmsg := []string{}
 
-	// Send gRPC to shutdown scheduler.
+	// Shutdowns and waits for all background go routines.
+	w.op <- SHUTDOWN
+	w.schedOp <- SHUTDOWN
+	w.wg.Wait()
+
+	// Sends gRPC to shutdown scheduler.
 	res, err := w.KillSched()
 	if err != nil {
 		msg := "Connection failed when killing CooperativeSched"
@@ -311,9 +324,6 @@ func (w *Worker) Close() error {
 	}
 
 	w.destroyInstance(w.sched)
-
-	// Shutdown all background go routines.
-	w.op <- SHUTDOWN
 
 	// Cleans up SGroups and free SGroups.
 	w.destroyAllSGroups()
