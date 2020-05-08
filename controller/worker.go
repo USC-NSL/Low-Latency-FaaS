@@ -70,7 +70,8 @@ func NewWorker(name string, ip string, coreNumOffset int, coreNum int) *Worker {
 
 	// coreId is ranged between [coreNumOffset, coreNumOffset + coreNum)
 	for i := 0; i < coreNum; i++ {
-		w.cores[i+coreNumOffset] = newCore()
+		coreID := i + coreNumOffset
+		w.cores[coreID] = NewCore(coreID)
 	}
 
 	// Starts a background routine for maintaining |freeSGroups|
@@ -262,8 +263,9 @@ func (w *Worker) getSGroup(groupID int) *SGroup {
 
 // Migrates/Schedules a SGroup with |groupId| to core |coreId|.
 func (w *Worker) attachSGroup(groupID int, coreID int) error {
-	if _, exists := w.cores[coreID]; !exists {
-		return errors.New(fmt.Sprintf("core %d not found", coreID))
+	core, exists := w.cores[coreID]
+	if !exists {
+		return errors.New(fmt.Sprintf("Core[%d] not found", coreID))
 	}
 
 	sg := w.getSGroup(groupID)
@@ -271,14 +273,25 @@ func (w *Worker) attachSGroup(groupID int, coreID int) error {
 		return fmt.Errorf("SGroup %d not found on worker[%s]", groupID, w.name)
 	}
 
-	// Schedules |sg| on the new core.
+	// Removes |sg| from its previous core.
+	if sg.GetCoreID() != INVALID_CORE_ID {
+		prev, exists := w.cores[coreID]
+		if !exists {
+			return errors.New(fmt.Sprintf("Core[%d] not found", prev))
+		}
+		prev.detachSGroup(groupID)
+	}
 
-	// Send gRPC to inform scheduler.
+	// Sends gRPC to inform scheduler.
 	if status, err := w.AttachChain(sg.tids, coreID); err != nil {
 		return err
 	} else if status.GetCode() != 0 {
 		return errors.New(fmt.Sprintf("error from gRPC request AttachChain: %s", status.GetErrmsg()))
 	}
+
+	// Appends |sg| to |core|.
+	core.attachSGroup(sg)
+
 	return nil
 }
 
@@ -286,9 +299,6 @@ func (w *Worker) attachSGroup(groupID int, coreID int) error {
 // The SGroup is still pinned to its original running core, but won't
 // get executed.
 func (w *Worker) detachSGroup(groupID int) error {
-	// Move it from core |coreId| to freeSGroups.
-	//sGroup := w.cores[coreId].detachSGroup(groupID)
-
 	sg := w.getSGroup(groupID)
 	if sg == nil {
 		return fmt.Errorf("SGroup %d not found on worker[%s]", groupID, w.name)
@@ -300,6 +310,7 @@ func (w *Worker) detachSGroup(groupID int) error {
 	} else if status.GetCode() != 0 {
 		return errors.New(fmt.Sprintf("error from gRPC request DetachChain: %s", status.GetErrmsg()))
 	}
+
 	return nil
 }
 

@@ -129,3 +129,6 @@ func (sgPool *SGroupPool) remove(groupID int) {
 
 	glog.Errorf("Try to remove SGroup[%d], not found in SGroupPool", groupID)
 }
+
+// CoreSlice is the container of CPU cores on a Worker.
+type CoreSlice []*Core

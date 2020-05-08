@@ -8,25 +8,37 @@ import (
 // |sGroups| contains all sgroups managed by this core.
 // Each SGroup is a minimal scheduling unit and is run-to-completion.
 type Core struct {
-	sGroups []*SGroup
+	coreID  int
+	sGroups SGroupSlice
 }
 
-func newCore() *Core {
+func NewCore(coreID int) *Core {
 	core := Core{
+		coreID:  coreID,
 		sGroups: make([]*SGroup, 0),
 	}
 	return &core
 }
 
 func (c *Core) String() string {
-	info := ""
+	info := fmt.Sprintf("Core[%d] [", c.coreID)
+
+	sumLoad := 0
 	if len(c.sGroups) == 0 {
-		return "Empty"
+		info += fmt.Sprintf("Empty")
+	} else {
+		for _, sg := range c.sGroups {
+			info += fmt.Sprintf("<%d> ", sg.ID())
+			sumLoad += sg.GetLoad()
+		}
 	}
-	for _, sg := range c.sGroups {
-		info += fmt.Sprintf("<%s> ", sg)
-	}
+
+	info += fmt.Sprintf("] (Load=%d)", sumLoad)
 	return info
+}
+
+func (c *Core) ID() int {
+	return c.coreID
 }
 
 // Attach a SGroup |sg| on the core.

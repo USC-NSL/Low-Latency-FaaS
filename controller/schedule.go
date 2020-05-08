@@ -114,7 +114,7 @@ func (w *Worker) scheduleOnce() {
 
 		sgLoad := sg.GetLoad()
 
-		if load + sgLoad < 90 {
+		if load+sgLoad < 90 {
 			load = load + sgLoad
 		} else if coreID < 7 {
 			coreID += 1

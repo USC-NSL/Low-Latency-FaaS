@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
@@ -128,7 +127,7 @@ func (sg *SGroup) String() string {
 			info += fmt.Sprintf("->%s", ins)
 		}
 	}
-	return info + fmt.Sprintf("](id=%d, pcie=%s, q=%d, pps=%d kpps, load=%d)", sg.groupID, PCIeMappings[sg.pcieIdx], sg.incQueueLength, sg.pktRateKpps, 100 * sg.pktRateKpps / sg.maxRateKpps)
+	return info + fmt.Sprintf("](id=%d, pcie=%s, q=%d, pps=%d kpps, load=%d)", sg.groupID, PCIeMappings[sg.pcieIdx], sg.incQueueLength, sg.pktRateKpps, 100*sg.pktRateKpps/sg.maxRateKpps)
 }
 
 func (sg *SGroup) ID() int {
@@ -186,11 +185,11 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 			glog.Errorf("Failed to notify the scheduler. %s", err)
 		}
 
-		if err := w.attachSGroup(sg.ID(), 1); err != nil {
+		if _, err := w.AttachChain(sg.tids, 1); err != nil {
 			glog.Errorf("Failed to attach SGroup[%d] on core #1. %s", sg.ID(), err)
 		}
 
-		if err := w.detachSGroup(sg.ID()); err != nil {
+		if _, err := w.DetachChain(sg.tids, 0); err != nil {
 			glog.Errorf("Failed to detach SGroup[%d] on core #1. %s", sg.ID(), err)
 		}
 	}
@@ -260,20 +259,21 @@ func (sg *SGroup) UpdateCoreID(coreID int) {
 	sg.coreID = coreID
 }
 
+func (sg *SGroup) GetCoreID() int {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	return sg.coreID
+}
+
 // Migrates/Schedules a SGroup with |groupId| to core |coreId|.
 func (sg *SGroup) attachSGroup(coreID int) error {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
-	if _, exists := sg.worker.cores[coreID]; !exists {
-		return errors.New(fmt.Sprintf("core[%d] is not managed by FaaSController", coreID))
-	}
-
-	// Schedules |sg| on the new core via a gRPC request.
-	if status, err := sg.worker.AttachChain(sg.tids, coreID); err != nil {
+	// Schedules |sg| on the new core with index |coreID|.
+	if err := sg.worker.attachSGroup(sg.groupID, coreID); err != nil {
 		return err
-	} else if status.GetCode() != 0 {
-		return errors.New(fmt.Sprintf("error from gRPC request AttachChain: %s", status.GetErrmsg()))
 	}
 
 	sg.coreID = coreID
@@ -288,11 +288,9 @@ func (sg *SGroup) detachSGroup() error {
 		return fmt.Errorf("SGroup[%d] is not running", sg.ID())
 	}
 
-	// Send gRPC to inform scheduler.
-	if status, err := sg.worker.DetachChain(sg.tids, 0); err != nil {
+	// Detaches |sg| from its running.
+	if err := sg.worker.detachSGroup(sg.groupID); err != nil {
 		return err
-	} else if status.GetCode() != 0 {
-		return errors.New(fmt.Sprintf("error from gRPC request DetachChain: %s", status.GetErrmsg()))
 	}
 
 	return nil
