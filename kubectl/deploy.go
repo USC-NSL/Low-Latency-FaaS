@@ -74,8 +74,8 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string, funcType stri
 								// limits are specified but requests are not.
 								"resources": map[string]interface{}{
 									"limits": map[string]interface{}{
-										"memory":        "48Mi",
-										"hugepages-2Mi": "48Mi",
+										"memory":        "128Mi",
+										"hugepages-2Mi": "128Mi",
 									},
 								},
 								"name":            funcType,

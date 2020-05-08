@@ -125,8 +125,9 @@ message InstanceInfo {
 message TrafficInfo {
   int64 qlen = 1;
   int64 kpps = 2;
-  string nodeName = 3;
-  int32 port = 4;
+  int32 cycle = 3;
+  string nodeName = 4;
+  int32 port = 5;
 }
 
 message SetupChainArg {

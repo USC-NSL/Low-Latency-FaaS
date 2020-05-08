@@ -37,7 +37,7 @@ func (insPool *InstancePool) get(port int) *Instance {
 
 	ins, exist := insPool.pool[port]
 	if !exist {
-		glog.Errorf("Try to remove Instance[%d], not found in StartupPool", port)
+		glog.Errorf("Instance[%d] is not found in StartupPool", port)
 		return nil
 	}
 	return ins

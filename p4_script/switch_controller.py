@@ -19,6 +19,7 @@ import argparse
 import logging
 import collections
 import copy
+import unicodedata
 
 # Adds the directory where the generated PD file is located.
 parser = argparse.ArgumentParser()
@@ -217,7 +218,7 @@ class SwitchTable(object):
         return action in self._actions
 
     def get_match_action_spec(self, action, args):
-        print action, args, self._name
+        #print action, args, self._name
         if action not in self._actions:
             return None, None, None
 
@@ -421,10 +422,10 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
             print "Error: invalid action"
             return
         if self._tables[table_name].has_table_entry(entry_key):
-            print "Error: Duplicated entry (flow)"
+            #print "Error: Duplicated entry (flow)"
             return
 
-        print self.dump_table_entry(table_name)
+        #print self.dump_table_entry(table_name)
         # |entry_handler| is an integer that represents the rule index.
         entry_handler = self._interface.insert_exact_match_rule(table_name, action, match_spec, action_spec)
         # Stores the entry in a dict maintained by the table.
@@ -451,12 +452,13 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
             if response.dmac == "none":
                 return
 
+            binary_dmac = (response.dmac).replace(":", "").decode("hex")
             table_name = "faas_conn_table"
             action = "faas_conn_table_hit"
             args = [packet[IP].src, packet[IP].dst, \
                 packet[IP].proto, \
                 packet[TCP].sport, packet[TCP].dport, \
-                response.switch_port, response.dmac]
+                response.switch_port, binary_dmac]
             match_spec, action_spec, entry_key = self._tables[table_name].get_match_action_spec(action, args)
 
             # Calls the switch thrift API to insert the rule.
@@ -526,7 +528,7 @@ class FaaSSwitchCLI(cmd.Cmd):
             match_spec = match_action_spec[0]
             action_spec = match_action_spec[1]
             entry_key = match_action_spec[2]
-            print "EntryKey=", entry_key
+            #print "EntryKey=", entry_key
             self._switch_controller.insert_table_entry(table_name, action, match_spec, action_spec, entry_key)
         return
 

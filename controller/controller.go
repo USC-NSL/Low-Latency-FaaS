@@ -172,6 +172,9 @@ func (c *FaaSController) CreateSGroup(nodeName string, nfs []string) error {
 	glog.Infof("Deploy a DAG %v", dag.chains)
 
 	n := len(w.freeSGroups)
+	if n <= 0 {
+		return fmt.Errorf("Worker[%s] does not have free SGroups.", w.name)
+	}
 	var sg *SGroup = w.freeSGroups[n-1]
 	w.freeSGroups = w.freeSGroups[:(n - 1)]
 
@@ -229,9 +232,10 @@ func (c *FaaSController) InstanceSetUp(nodeName string, port int, tid int) error
 }
 
 // Called when receiving gRPC request updating traffic info.
-// |qlen| is the NIC rx queue length. |kpps| is the traffic volume.
+// |qlen| is the NIC rx queue length. |kpps| is the incoming traffic
+// rate in (Kpps). |cycle| is the per-packet cycle cost.
 // Returns error if this controller failed to update traffic info.
-func (c *FaaSController) InstanceUpdateStats(nodeName string, port int, qlen int, kpps int) error {
+func (c *FaaSController) InstanceUpdateStats(nodeName string, port int, qlen int, kpps int, cycle int) error {
 	w, exists := c.workers[nodeName]
 	if !exists {
 		return fmt.Errorf("Worker[%s] does not exist", nodeName)
@@ -239,7 +243,7 @@ func (c *FaaSController) InstanceUpdateStats(nodeName string, port int, qlen int
 
 	ins := w.insStartupPool.get(port)
 	if ins == nil || ins.sg == nil {
-		return errors.New(fmt.Sprintf("SGroup not found"))
+		return fmt.Errorf("SGroup not found")
 	}
 
 	ins.sg.UpdateTrafficInfo(qlen, kpps)
