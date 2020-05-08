@@ -252,7 +252,7 @@ func (sg *SGroup) GetLoad() int {
 	return 100 * sg.pktRateKpps / sg.maxRateKpps
 }
 
-func (sg *SGroup) UpdateCoreID(coreID int) {
+func (sg *SGroup) SetCoreID(coreID int) {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
@@ -268,28 +268,22 @@ func (sg *SGroup) GetCoreID() int {
 
 // Migrates/Schedules a SGroup with |groupId| to core |coreId|.
 func (sg *SGroup) attachSGroup(coreID int) error {
-	sg.mutex.Lock()
-	defer sg.mutex.Unlock()
-
 	// Schedules |sg| on the new core with index |coreID|.
-	if err := sg.worker.attachSGroup(sg.groupID, coreID); err != nil {
+	if err := sg.worker.attachSGroup(sg, coreID); err != nil {
 		return err
 	}
 
-	sg.coreID = coreID
+	sg.SetCoreID(coreID)
 	return nil
 }
 
 func (sg *SGroup) detachSGroup() error {
-	sg.mutex.Lock()
-	defer sg.mutex.Unlock()
-
-	if sg.coreID == INVALID_CORE_ID {
+	if sg.GetCoreID() == INVALID_CORE_ID {
 		return fmt.Errorf("SGroup[%d] is not running", sg.ID())
 	}
 
 	// Detaches |sg| from its running.
-	if err := sg.worker.detachSGroup(sg.groupID); err != nil {
+	if err := sg.worker.detachSGroup(sg); err != nil {
 		return err
 	}
 

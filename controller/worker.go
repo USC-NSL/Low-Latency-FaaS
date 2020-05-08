@@ -94,8 +94,8 @@ func (w *Worker) String() string {
 	defer w.sgMutex.Unlock()
 
 	info := fmt.Sprintf("Worker [%s] at %s \n Core:", w.name, w.ip)
-	for coreId, core := range w.cores {
-		info += fmt.Sprintf("\n  %d %s", coreId, core)
+	for _, core := range w.cores {
+		info += fmt.Sprintf("\n  %s", core)
 	}
 
 	info += "\n SGroups:"
@@ -262,24 +262,19 @@ func (w *Worker) getSGroup(groupID int) *SGroup {
 }
 
 // Migrates/Schedules a SGroup with |groupId| to core |coreId|.
-func (w *Worker) attachSGroup(groupID int, coreID int) error {
+func (w *Worker) attachSGroup(sg *SGroup, coreID int) error {
 	core, exists := w.cores[coreID]
 	if !exists {
-		return errors.New(fmt.Sprintf("Core[%d] not found", coreID))
-	}
-
-	sg := w.getSGroup(groupID)
-	if sg == nil {
-		return fmt.Errorf("SGroup %d not found on worker[%s]", groupID, w.name)
+		return errors.New(fmt.Sprintf("Core[%d] is not found", coreID))
 	}
 
 	// Removes |sg| from its previous core.
 	if sg.GetCoreID() != INVALID_CORE_ID {
-		prev, exists := w.cores[coreID]
+		prevCore, exists := w.cores[coreID]
 		if !exists {
-			return errors.New(fmt.Sprintf("Core[%d] not found", prev))
+			return errors.New(fmt.Sprintf("Core[%d] not found", prevCore))
 		}
-		prev.detachSGroup(groupID)
+		prevCore.detachSGroup(sg)
 	}
 
 	// Sends gRPC to inform scheduler.
@@ -298,12 +293,7 @@ func (w *Worker) attachSGroup(groupID int, coreID int) error {
 // Detaches a SGroup, indexed by |groupID|, on its running core.
 // The SGroup is still pinned to its original running core, but won't
 // get executed.
-func (w *Worker) detachSGroup(groupID int) error {
-	sg := w.getSGroup(groupID)
-	if sg == nil {
-		return fmt.Errorf("SGroup %d not found on worker[%s]", groupID, w.name)
-	}
-
+func (w *Worker) detachSGroup(sg *SGroup) error {
 	// Send gRPC to inform scheduler.
 	if status, err := w.DetachChain(sg.tids, 0); err != nil {
 		return err

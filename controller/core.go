@@ -41,18 +41,16 @@ func (c *Core) ID() int {
 	return c.coreID
 }
 
-// Attach a SGroup |sg| on the core.
-func (c *Core) attachSGroup(sg *SGroup) {
-	c.sGroups = append(c.sGroups, sg)
+// Attach a SGroup |sgroup| on the core.
+func (c *Core) attachSGroup(sgroup *SGroup) {
+	c.sGroups = append(c.sGroups, sgroup)
 }
 
-// Detach sGroup with |groupId| on the core.
-func (c *Core) detachSGroup(groupId int) *SGroup {
+// Detach a SGroup |sgroup| on the core.
+func (c *Core) detachSGroup(sgroup *SGroup) {
 	for i, sg := range c.sGroups {
-		if sg.ID() == groupId {
+		if sg.ID() == sgroup.ID() {
 			c.sGroups = append(c.sGroups[:i], c.sGroups[i+1:]...)
-			return sg
 		}
 	}
-	return nil
 }

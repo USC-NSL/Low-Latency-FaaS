@@ -197,19 +197,23 @@ func (c *FaaSController) DestroySGroup(nodeName string, groupID int) error {
 }
 
 func (c *FaaSController) AttachSGroup(nodeName string, groupID int, coreId int) error {
-	if _, exists := c.workers[nodeName]; !exists {
+	w, exists := c.workers[nodeName]
+	if !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
 
-	return c.workers[nodeName].attachSGroup(groupID, coreId)
+	sg := w.getSGroup(groupID)
+	return w.attachSGroup(sg, coreId)
 }
 
 func (c *FaaSController) DetachSGroup(nodeName string, groupID int) error {
-	if _, exists := c.workers[nodeName]; !exists {
+	w, exists := c.workers[nodeName]
+	if !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
 
-	return c.workers[nodeName].detachSGroup(groupID)
+	sg := w.getSGroup(groupID)
+	return w.detachSGroup(sg)
 }
 
 // Note: gRPC functions

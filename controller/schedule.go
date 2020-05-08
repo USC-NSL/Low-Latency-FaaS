@@ -25,22 +25,21 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 	//return "00:00:00:00:00:01", nil
 	var dag *DAG = nil
 	for _, d := range c.dags {
-		if d.Match(srcIP, dstIP, srcPort, dstPort, proto) || true {
+		if d.Match(srcIP, dstIP, srcPort, dstPort, proto) {
 			dag = d
 			break
 		}
 	}
 
 	// The flow does not match any activated DAGs. Just ignore it.
-	// TODO(Jianfeng): handle the drop case properly.
 	if dag == nil || (!dag.isActive) {
 		glog.Infof("This new flow does not match any DAG.")
 		return "none", nil
 	}
 
-	var sg *SGroup = nil
+	sg := dag.findActiveSGroup()
 	// Picks an active SGroup |sg| and assigns the flow to it.
-	if sg = dag.findActiveSGroup(); sg != nil {
+	if sg != nil {
 		//glog.Infof("SGroup[%d], mac=%s, load=%d", sg.ID(), dmacMappings[sg.pcieIdx], sg.GetLoad())
 		return dmacMappings[sg.pcieIdx], nil
 	}
@@ -124,11 +123,10 @@ func (w *Worker) scheduleOnce() {
 			break
 		}
 
-		// Sends a gRPC request to enforce scheduling.
-		if sg.GetQlen() > 0 {
-			if err := sg.attachSGroup(coreID); err != nil {
-				glog.Errorf("Failed to attach SGroup[%d] to Core[%d]", sg.ID(), coreID)
-			}
+		// Enforce scheduling.
+		// Note: be careful about deadlocks.
+		if err := sg.attachSGroup(coreID); err != nil {
+			glog.Errorf("Failed to attach SGroup[%d] to Core[%d]", sg.ID(), coreID)
 		}
 	}
 }
