@@ -2,6 +2,8 @@ package controller
 
 import (
 	"fmt"
+
+	glog "github.com/golang/glog"
 )
 
 // The abstraction of CPU core.
@@ -29,7 +31,7 @@ func (c *Core) String() string {
 	} else {
 		for _, sg := range c.sGroups {
 			info += fmt.Sprintf("<%d> ", sg.ID())
-			sumLoad += sg.GetLoad()
+			sumLoad += sg.GetPktLoad()
 		}
 	}
 
@@ -50,7 +52,11 @@ func (c *Core) attachSGroup(sgroup *SGroup) {
 func (c *Core) detachSGroup(sgroup *SGroup) {
 	for i, sg := range c.sGroups {
 		if sg.ID() == sgroup.ID() {
+			glog.Infof("SGroup[%d]", sgroup.ID())
 			c.sGroups = append(c.sGroups[:i], c.sGroups[i+1:]...)
+			return
 		}
 	}
+
+	glog.Errorf("SGroup[%d]", sgroup.ID())
 }

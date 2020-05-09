@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sort"
 	"time"
 
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
@@ -94,8 +95,15 @@ func (w *Worker) String() string {
 	defer w.sgMutex.Unlock()
 
 	info := fmt.Sprintf("Worker [%s] at %s \n Core:", w.name, w.ip)
-	for _, core := range w.cores {
-		info += fmt.Sprintf("\n  %s", core)
+
+	coreIDs := []int{}
+	for coreID, _ := range w.cores {
+		coreIDs = append(coreIDs, coreID)
+	}
+
+	sort.Ints(coreIDs)
+	for _, id := range coreIDs {
+		info += fmt.Sprintf("\n  %s", w.cores[id])
 	}
 
 	info += "\n SGroups:"
@@ -263,16 +271,12 @@ func (w *Worker) getSGroup(groupID int) *SGroup {
 
 // Migrates/Schedules a SGroup with |groupId| to core |coreId|.
 func (w *Worker) attachSGroup(sg *SGroup, coreID int) error {
-	core, exists := w.cores[coreID]
-	if !exists {
-		return errors.New(fmt.Sprintf("Core[%d] is not found", coreID))
-	}
-
 	// Removes |sg| from its previous core.
-	if sg.GetCoreID() != INVALID_CORE_ID {
-		prevCore, exists := w.cores[coreID]
+	prevCoreID := sg.GetCoreID()
+	if prevCoreID != INVALID_CORE_ID {
+		prevCore, exists := w.cores[prevCoreID]
 		if !exists {
-			return errors.New(fmt.Sprintf("Core[%d] not found", prevCore))
+			return errors.New(fmt.Sprintf("Core[%d] not found", prevCoreID))
 		}
 		prevCore.detachSGroup(sg)
 	}
@@ -285,6 +289,10 @@ func (w *Worker) attachSGroup(sg *SGroup, coreID int) error {
 	}
 
 	// Appends |sg| to |core|.
+	core, exists := w.cores[coreID]
+	if !exists {
+		return errors.New(fmt.Sprintf("Core[%d] not found", coreID))
+	}
 	core.attachSGroup(sg)
 
 	return nil

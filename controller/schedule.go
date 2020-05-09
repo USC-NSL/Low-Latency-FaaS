@@ -40,7 +40,7 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 	sg := dag.findAvailableSGroup()
 	// Picks an active SGroup |sg| and assigns the flow to it.
 	if sg != nil {
-		//glog.Infof("SGroup[%d], mac=%s, load=%d", sg.ID(), dmacMappings[sg.pcieIdx], sg.GetLoad())
+		//glog.Infof("SGroup[%d], mac=%s, load=%d", sg.ID(), dmacMappings[sg.pcieIdx], sg.GetPktLoad())
 		return dmacMappings[sg.pcieIdx], nil
 	}
 
@@ -66,12 +66,16 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 func (g *DAG) findAvailableSGroup() *SGroup {
 	var selected *SGroup = nil
 	for _, sg := range g.sgroups {
+		// Skips if there are instances not ready.
 		if !sg.IsReady() {
-			// Skips if there are instances not ready.
 			continue
 		}
-		if sg.GetLoad() > 80 {
-			// Skips overloaded SGroups.
+
+		// Skips overloaded SGroups.
+		if sg.GetQLoad() > 50 {
+			continue
+		}
+		if sg.GetPktLoad() > 80 {
 			continue
 		}
 
@@ -121,7 +125,7 @@ func (w *Worker) scheduleOnce() {
 			continue
 		}
 
-		sgLoad := sg.GetLoad()
+		sgLoad := sg.GetPktLoad()
 
 		if load+sgLoad < 80 {
 			load = load + sgLoad

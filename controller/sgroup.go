@@ -253,6 +253,13 @@ func (sg *SGroup) GetQlen() int {
 	return sg.incQueueLength
 }
 
+func (sg *SGroup) GetQLoad() int {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	return 188 * sg.incQueueLength / sg.incQueueCapacity
+}
+
 func (sg *SGroup) GetPktRate() int {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
@@ -260,7 +267,7 @@ func (sg *SGroup) GetPktRate() int {
 	return sg.pktRateKpps
 }
 
-func (sg *SGroup) GetLoad() int {
+func (sg *SGroup) GetPktLoad() int {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
