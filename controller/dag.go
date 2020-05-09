@@ -104,6 +104,10 @@ func (g *DAG) Match(srcIP string, dstIP string, srcPort uint32, dstPort uint32, 
 	return false
 }
 
+// This function activates a logical NF DAG |g|. First, it parses
+// the logical DAG, and translates it into a set of logical SGroups.
+// Then, it sets |g| as active, which indicates that this logical
+// DAG is ready to serve traffic.
 func (g *DAG) Activate() error {
 	cnt := 0
 	var ingress *NF = nil

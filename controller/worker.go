@@ -76,7 +76,7 @@ func NewWorker(name string, ip string, coreNumOffset int, coreNum int) *Worker {
 
 	// Starts a background routine for maintaining |freeSGroups|
 	w.wg.Add(2)
-	go w.CreateFreeSGroups(w.op)
+	go w.RunFreeSGroupFactory(w.op)
 	go w.ScheduleLoop()
 
 	// TODO(Zhuojin): remove VSwitchGRPCHandler.

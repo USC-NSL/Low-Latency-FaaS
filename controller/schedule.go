@@ -37,7 +37,7 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 		return "none", nil
 	}
 
-	sg := dag.findActiveSGroup()
+	sg := dag.findAvailableSGroup()
 	// Picks an active SGroup |sg| and assigns the flow to it.
 	if sg != nil {
 		//glog.Infof("SGroup[%d], mac=%s, load=%d", sg.ID(), dmacMappings[sg.pcieIdx], sg.GetLoad())
@@ -63,9 +63,13 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 
 // Selects an active |SGroup| for the logical NF DAG |g|. Picks
 // the one with the lowest traffic load (packet rate).
-func (g *DAG) findActiveSGroup() *SGroup {
+func (g *DAG) findAvailableSGroup() *SGroup {
 	var selected *SGroup = nil
 	for _, sg := range g.sgroups {
+		if !sg.IsReady() {
+			// Skips if there are instances not ready.
+			continue
+		}
 		if sg.GetLoad() > 80 {
 			// Skips overloaded SGroups.
 			continue
@@ -73,7 +77,7 @@ func (g *DAG) findActiveSGroup() *SGroup {
 
 		if selected == nil {
 			selected = sg
-		} else if selected.pktRateKpps < sg.pktRateKpps {
+		} else if selected.GetPktRate() < sg.GetPktRate() {
 			selected = sg
 		}
 	}
@@ -103,17 +107,23 @@ func (w *Worker) scheduleOnce() {
 
 	sort.Sort(sort.Reverse(w.sgroups))
 
-	coreID := 1
-	load := 0
+	coreID := 0
+	load := 80
 
 	for _, sg := range w.sgroups {
-		if !sg.IsReady() || !sg.IsActive() {
+		if !sg.IsReady() {
+			// Skips if |sg| is not ready for scheduling.
+			continue
+		} else if !sg.IsActive() {
+			if err := sg.detachSGroup(); err != nil {
+				glog.Errorf("Failed to detach SGroup[%d]. %v", sg.ID(), err)
+			}
 			continue
 		}
 
 		sgLoad := sg.GetLoad()
 
-		if load+sgLoad < 90 {
+		if load+sgLoad < 80 {
 			load = load + sgLoad
 		} else if coreID < 7 {
 			coreID += 1

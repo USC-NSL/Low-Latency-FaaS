@@ -17,12 +17,15 @@ const (
 // |manager| manages NIC queues, memory buffers.
 // |groupID| is the unique ID of the sGroup on a worker.
 // |pcieIdx| is used to identify this sgroup.
+// |isActive| is true if this SGroup is serving traffic, i.e.
+// packets are coming into the SGroup's NIC queue.
 // |instances| are NF instances within the scheduling group.
 // |tids| is an array of all NF thread's IDs.
 // |QueueLength, QueueCapacity| are the NIC queue information.
 // |pktRateKpps| describes the observed traffic.
 // |worker| is the worker node that the sGroup attached to. Set -1 when not attached.
 // |coreID| is the core that the sGroup scheduled to.
+// |isSched| is true if this SGroup is scheduled on a core.
 // Note:
 // 1. All Instances in |instances| is placed in a InsStartupPool;
 // 2. If |tids| is empty, it means that one or more NF threadsl
@@ -44,6 +47,7 @@ type SGroup struct {
 	maxRateKpps      int
 	worker           *Worker
 	coreID           int
+	isSched          bool
 	mutex            sync.Mutex
 }
 
@@ -99,6 +103,7 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 		maxRateKpps:      802,
 		worker:           w,
 		coreID:           INVALID_CORE_ID,
+		isSched:          false,
 	}
 
 	isPrimary := "true"
@@ -192,6 +197,9 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 		if _, err := w.DetachChain(sg.tids, 0); err != nil {
 			glog.Errorf("Failed to detach SGroup[%d] on core #1. %s", sg.ID(), err)
 		}
+
+		sg.coreID = 1
+		sg.isSched = false
 	}
 }
 
@@ -208,6 +216,13 @@ func (sg *SGroup) IsActive() bool {
 	defer sg.mutex.Unlock()
 
 	return sg.isActive
+}
+
+func (sg *SGroup) IsSched() bool {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	return sg.isSched
 }
 
 // TODO (Jianfeng): trigger extra scaling operations.
@@ -259,6 +274,13 @@ func (sg *SGroup) SetCoreID(coreID int) {
 	sg.coreID = coreID
 }
 
+func (sg *SGroup) SetSched(isSched bool) {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	sg.isSched = isSched
+}
+
 func (sg *SGroup) GetCoreID() int {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
@@ -268,12 +290,18 @@ func (sg *SGroup) GetCoreID() int {
 
 // Migrates/Schedules a SGroup with |groupId| to core |coreId|.
 func (sg *SGroup) attachSGroup(coreID int) error {
+	if sg.GetCoreID() == coreID && sg.IsSched() {
+		// Returns if |sg| is scheduled by |coreID| now.
+		return nil
+	}
+
 	// Schedules |sg| on the new core with index |coreID|.
 	if err := sg.worker.attachSGroup(sg, coreID); err != nil {
 		return err
 	}
 
 	sg.SetCoreID(coreID)
+	sg.SetSched(true)
 	return nil
 }
 
@@ -281,11 +309,16 @@ func (sg *SGroup) detachSGroup() error {
 	if sg.GetCoreID() == INVALID_CORE_ID {
 		return fmt.Errorf("SGroup[%d] is not running", sg.ID())
 	}
+	if !sg.IsSched() {
+		// Returns if |sg| has already detached.
+		return nil
+	}
 
 	// Detaches |sg| from its running.
 	if err := sg.worker.detachSGroup(sg); err != nil {
 		return err
 	}
 
+	sg.SetSched(false)
 	return nil
 }

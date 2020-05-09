@@ -125,7 +125,9 @@ func (c *FaaSController) ActivateDAG(user string) error {
 		return errors.New(fmt.Sprintf("User [%s] has no NFs.", user))
 	}
 
+	// For testing only, incoming packets always have a dstPort 8080.
 	dag.addFlow("", "", 0, 8080, 0)
+
 	dag.Activate()
 
 	for {

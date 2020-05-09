@@ -35,9 +35,9 @@ func (op FaaSOP) String() string {
 }
 
 // Long-running Go-routine function at each worker.
-// It waits for control messages to create FreeSgroups. The goal
-// is to maintain a pool of NIC queues for buffering packets.
-func (w *Worker) CreateFreeSGroups(op chan FaaSOP) {
+// This function waits for control messages to create FreeSgroups.
+// The goal is to create a pool of NIC queues concurrently.
+func (w *Worker) RunFreeSGroupFactory(op chan FaaSOP) {
 	var msg FaaSOP
 
 	for {
