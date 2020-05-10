@@ -106,6 +106,7 @@ func (c *FaaSController) getFreeSGroup() *SGroup {
 // Algorithm: Best Fit Decreasing.
 func (w *Worker) scheduleOnce() {
 	// Stops all updates on Worker |w| temporally.
+	return
 	w.sgMutex.Lock()
 	defer w.sgMutex.Unlock()
 

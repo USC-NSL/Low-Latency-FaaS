@@ -261,7 +261,7 @@ func (k8s *KubeController) makeSchedDeploymentSpec(nodeName string, hostPort int
 								"command": []string{
 									"/app/cooperative_sched",
 									"--cli=0",
-									"--logtostderr=0",
+									"--logtostderr=1",
 								},
 							},
 						}, // Ends containers

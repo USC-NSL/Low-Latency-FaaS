@@ -3,9 +3,9 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
-	"sort"
 	"time"
 
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
@@ -97,7 +97,7 @@ func (w *Worker) String() string {
 	info := fmt.Sprintf("Worker [%s] at %s \n Core:", w.name, w.ip)
 
 	coreIDs := []int{}
-	for coreID, _ := range w.cores {
+	for coreID := range w.cores {
 		coreIDs = append(coreIDs, coreID)
 	}
 
@@ -285,7 +285,7 @@ func (w *Worker) attachSGroup(sg *SGroup, coreID int) error {
 	if status, err := w.AttachChain(sg.tids, coreID); err != nil {
 		return err
 	} else if status.GetCode() != 0 {
-		return errors.New(fmt.Sprintf("error from gRPC request AttachChain: %s", status.GetErrmsg()))
+		return errors.New(fmt.Sprintf("AttachChain gRPC request errmsg: %s", status.GetErrmsg()))
 	}
 
 	// Appends |sg| to |core|.
@@ -306,7 +306,7 @@ func (w *Worker) detachSGroup(sg *SGroup) error {
 	if status, err := w.DetachChain(sg.tids, 0); err != nil {
 		return err
 	} else if status.GetCode() != 0 {
-		return errors.New(fmt.Sprintf("error from gRPC request DetachChain: %s", status.GetErrmsg()))
+		return errors.New(fmt.Sprintf("DetachChain gRPC request errmsg: %s", status.GetErrmsg()))
 	}
 
 	return nil

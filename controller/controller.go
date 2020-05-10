@@ -205,7 +205,7 @@ func (c *FaaSController) AttachSGroup(nodeName string, groupID int, coreId int) 
 	}
 
 	sg := w.getSGroup(groupID)
-	return w.attachSGroup(sg, coreId)
+	return sg.attachSGroup(coreId)
 }
 
 func (c *FaaSController) DetachSGroup(nodeName string, groupID int) error {
@@ -215,7 +215,7 @@ func (c *FaaSController) DetachSGroup(nodeName string, groupID int) error {
 	}
 
 	sg := w.getSGroup(groupID)
-	return w.detachSGroup(sg)
+	return sg.detachSGroup()
 }
 
 // Note: gRPC functions

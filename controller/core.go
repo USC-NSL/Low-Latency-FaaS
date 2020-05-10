@@ -43,8 +43,17 @@ func (c *Core) ID() int {
 	return c.coreID
 }
 
+// Note: do not append duplicate SGroups to a Core.
 // Attach a SGroup |sgroup| on the core.
 func (c *Core) attachSGroup(sgroup *SGroup) {
+	for _, sg := range c.sGroups {
+		if sg.ID() == sgroup.ID() {
+			glog.Errorf("SGroup[%d] has already attached to Core[%d]", sgroup.ID(), c.coreID)
+			return
+		}
+	}
+
+	// |sgroup| does not present on Core |c|.
 	c.sGroups = append(c.sGroups, sgroup)
 }
 
@@ -52,11 +61,10 @@ func (c *Core) attachSGroup(sgroup *SGroup) {
 func (c *Core) detachSGroup(sgroup *SGroup) {
 	for i, sg := range c.sGroups {
 		if sg.ID() == sgroup.ID() {
-			glog.Infof("SGroup[%d]", sgroup.ID())
 			c.sGroups = append(c.sGroups[:i], c.sGroups[i+1:]...)
 			return
 		}
 	}
 
-	glog.Errorf("SGroup[%d]", sgroup.ID())
+	glog.Errorf("SGroup[%d] is not found on Core[%d]", sgroup.ID(), c.coreID)
 }

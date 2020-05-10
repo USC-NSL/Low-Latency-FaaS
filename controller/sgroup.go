@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"sync"
+	//"time"
 
 	glog "github.com/golang/glog"
 )
@@ -10,6 +11,7 @@ import (
 const (
 	NIC_RX_QUEUE_LENGTH = 4096
 	NIC_TX_QUEUE_LENGTH = 4096
+	STARTUP_CORE_ID     = 1
 	INVALID_CORE_ID     = -1
 )
 
@@ -17,7 +19,9 @@ const (
 // |manager| manages NIC queues, memory buffers.
 // |groupID| is the unique ID of the sGroup on a worker.
 // |pcieIdx| is used to identify this sgroup.
+// |isReady| is true if all instances are ready and detached on Core #1.
 // |isActive| is true if this SGroup is serving traffic, i.e.
+// |isSched| is true if this SGroup is scheduled on a core.
 // packets are coming into the SGroup's NIC queue.
 // |instances| are NF instances within the scheduling group.
 // |tids| is an array of all NF thread's IDs.
@@ -25,7 +29,6 @@ const (
 // |pktRateKpps| describes the observed traffic.
 // |worker| is the worker node that the sGroup attached to. Set -1 when not attached.
 // |coreID| is the core that the sGroup scheduled to.
-// |isSched| is true if this SGroup is scheduled on a core.
 // Note:
 // 1. All Instances in |instances| is placed in a InsStartupPool;
 // 2. If |tids| is empty, it means that one or more NF threadsl
@@ -36,7 +39,9 @@ type SGroup struct {
 	manager          *Instance
 	groupID          int
 	pcieIdx          int
+	isReady          bool
 	isActive         bool
+	isSched          bool
 	instances        []*Instance
 	tids             []int32
 	incQueueLength   int
@@ -47,7 +52,6 @@ type SGroup struct {
 	maxRateKpps      int
 	worker           *Worker
 	coreID           int
-	isSched          bool
 	mutex            sync.Mutex
 }
 
@@ -92,7 +96,9 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 	sg := SGroup{
 		groupID:          pcieIdx,
 		pcieIdx:          pcieIdx,
+		isReady:          false,
 		isActive:         false,
+		isSched:          false,
 		instances:        make([]*Instance, 0),
 		tids:             make([]int32, 0),
 		incQueueLength:   0,
@@ -103,7 +109,6 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 		maxRateKpps:      802,
 		worker:           w,
 		coreID:           INVALID_CORE_ID,
-		isSched:          false,
 	}
 
 	isPrimary := "true"
@@ -186,19 +191,34 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 		glog.Infof("SGroup[%d] is ready. Notify the scheduler", sg.ID())
 
 		w := sg.worker
+
+		// Calls gRPC functions directly to avoid deadlocks.
 		if _, err := w.SetupChain(sg.tids); err != nil {
 			glog.Errorf("Failed to notify the scheduler. %s", err)
 		}
 
-		if _, err := w.AttachChain(sg.tids, 1); err != nil {
+		coreID := STARTUP_CORE_ID
+		if status, err := w.AttachChain(sg.tids, coreID); err != nil {
 			glog.Errorf("Failed to attach SGroup[%d] on core #1. %s", sg.ID(), err)
+		} else if status.GetCode() != 0 {
+			glog.Errorf("AttachChain gRPC request errmsg: %s", status.GetErrmsg())
 		}
 
-		if _, err := w.DetachChain(sg.tids, 0); err != nil {
+		if status, err := w.DetachChain(sg.tids, coreID); err != nil {
 			glog.Errorf("Failed to detach SGroup[%d] on core #1. %s", sg.ID(), err)
+		} else if status.GetCode() != 0 {
+			glog.Errorf("DetachChain gRPC request errmsg: %s", status.GetErrmsg())
+		}
+
+		core, exists := w.cores[coreID]
+		if !exists {
+			glog.Errorf("Core[%d] not found", coreID)
+		} else {
+			core.attachSGroup(sg)
 		}
 
 		sg.coreID = 1
+		sg.isReady = true
 		sg.isSched = false
 	}
 }
@@ -208,7 +228,7 @@ func (sg *SGroup) IsReady() bool {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
-	return len(sg.tids) > 0
+	return sg.isReady
 }
 
 func (sg *SGroup) IsActive() bool {
@@ -257,7 +277,7 @@ func (sg *SGroup) GetQLoad() int {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
-	return 188 * sg.incQueueLength / sg.incQueueCapacity
+	return 100 * sg.incQueueLength / sg.incQueueCapacity
 }
 
 func (sg *SGroup) GetPktRate() int {
