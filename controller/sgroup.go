@@ -129,15 +129,22 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 }
 
 func (sg *SGroup) String() string {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
 	info := "["
 	for i, ins := range sg.instances {
 		if i == 0 {
 			info += fmt.Sprintf("%s", ins)
 		} else {
-			info += fmt.Sprintf("->%s", ins)
+			info += fmt.Sprintf(" -> %s", ins)
 		}
 	}
-	return info + fmt.Sprintf("](id=%d, pcie=%s, q=%d, pps=%d kpps, load=%d)", sg.groupID, PCIeMappings[sg.pcieIdx], sg.incQueueLength, sg.pktRateKpps, 100*sg.pktRateKpps/sg.maxRateKpps)
+	info += fmt.Sprintf("] info: id=%d, pcie=%s, core=%d\n", sg.groupID, PCIeMappings[sg.pcieIdx], sg.coreID)
+	info += fmt.Sprintf("    Status: rdy=%v, active=%v, sched=%v;   ", sg.isReady, sg.isActive, sg.isSched)
+	info += fmt.Sprintf("Performance: q=%d, qload=%d, pps=%d kpps, pload=%d)", sg.incQueueLength, 100*sg.incQueueLength/sg.incQueueCapacity, sg.pktRateKpps, 100*sg.pktRateKpps/sg.maxRateKpps)
+
+	return info
 }
 
 func (sg *SGroup) ID() int {
@@ -203,13 +210,13 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 		} else if status.GetCode() != 0 {
 			glog.Errorf("AttachChain gRPC request errmsg: %s", status.GetErrmsg())
 		}
-
-		if status, err := w.DetachChain(sg.tids, coreID); err != nil {
-			glog.Errorf("Failed to detach SGroup[%d] on core #1. %s", sg.ID(), err)
-		} else if status.GetCode() != 0 {
-			glog.Errorf("DetachChain gRPC request errmsg: %s", status.GetErrmsg())
-		}
-
+		/*
+			if status, err := w.DetachChain(sg.tids, coreID); err != nil {
+				glog.Errorf("Failed to detach SGroup[%d] on core #1. %s", sg.ID(), err)
+			} else if status.GetCode() != 0 {
+				glog.Errorf("DetachChain gRPC request errmsg: %s", status.GetErrmsg())
+			}
+		*/
 		core, exists := w.cores[coreID]
 		if !exists {
 			glog.Errorf("Core[%d] not found", coreID)
@@ -219,7 +226,7 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 
 		sg.coreID = 1
 		sg.isReady = true
-		sg.isSched = false
+		sg.isSched = true
 	}
 }
 

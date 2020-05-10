@@ -106,7 +106,6 @@ func (c *FaaSController) getFreeSGroup() *SGroup {
 // Algorithm: Best Fit Decreasing.
 func (w *Worker) scheduleOnce() {
 	// Stops all updates on Worker |w| temporally.
-	return
 	w.sgMutex.Lock()
 	defer w.sgMutex.Unlock()
 
@@ -120,9 +119,17 @@ func (w *Worker) scheduleOnce() {
 			// Skips if |sg| is not ready for scheduling.
 			continue
 		} else if !sg.IsActive() {
-			if err := sg.detachSGroup(); err != nil {
-				glog.Errorf("Failed to detach SGroup[%d]. %v", sg.ID(), err)
+			// Detaches |sg| if it is still being scheduled.
+			if sg.IsSched() {
+				if err := sg.detachSGroup(); err != nil {
+					glog.Errorf("Failed to detach SGroup[%d]. %v", sg.ID(), err)
+				}
 			}
+
+			if sg.IsSched() {
+				glog.Errorf("SGroup[%d] was Detached but still running!", sg.ID())
+			}
+
 			continue
 		}
 
