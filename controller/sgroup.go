@@ -336,6 +336,7 @@ func (sg *SGroup) attachSGroup(coreID int) error {
 
 	sg.SetCoreID(coreID)
 	sg.SetSched(true)
+	glog.Infof("SGroup[%d] runs on Core[%d]", sg.ID(), coreID)
 	return nil
 }
 
@@ -348,11 +349,12 @@ func (sg *SGroup) detachSGroup() error {
 		return nil
 	}
 
-	// Detaches |sg| from its running.
+	// Detaches |sg| from its running Core.
 	if err := sg.worker.detachSGroup(sg); err != nil {
 		return err
 	}
 
 	sg.SetSched(false)
+	glog.Infof("SGroup[%d] is detached on Core[%d]", sg.ID(), sg.GetCoreID())
 	return nil
 }

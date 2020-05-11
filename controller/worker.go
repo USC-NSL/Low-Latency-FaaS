@@ -127,14 +127,14 @@ func (w *Worker) createSched() error {
 
 	schedAddr := fmt.Sprintf("%s:%d", w.ip, port)
 	start := time.Now()
-	for time.Now().Unix()-start.Unix() < 10 {
+	for time.Now().Unix()-start.Unix() < 30 {
 		err := w.SchedulerGRPCHandler.EstablishConnection(schedAddr)
 		if err == nil {
 			break
 		}
 
 		// Backoff..
-		time.Sleep(1000 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 	}
 
 	if !w.SchedulerGRPCHandler.IsConnEstablished() {
@@ -182,7 +182,7 @@ func (w *Worker) destroyInstance(ins *Instance) error {
 
 func (w *Worker) createAllFreeSGroups() {
 	//for i := 0; i < w.pciePool.Size(); i++ {
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 7; i++ {
 		w.op <- FREE_SGROUP
 	}
 }

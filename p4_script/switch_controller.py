@@ -87,6 +87,7 @@ class ThriftInterface(object):
     DEVICE_TGT = DevTarget_t(0, hex_to_i16(PIPE))
 
     _transport = None
+    _transport_diag = None
     _protocol = None
     _conn_mgr_protocol = None
     _pal_protocol = None
@@ -101,22 +102,24 @@ class ThriftInterface(object):
     _dev_ports = {}
 
     def __init__(self):
-        rpc_socket = TSocket.TSocket('localhost', 9090)
-        self._transport = TTransport.TBufferedTransport(rpc_socket)
-        self._protocol = TBinaryProtocol.TBinaryProtocol(self._transport)
+        self._transport = TSocket.TSocket('localhost', 9090)
+        self._transport_diag = TTransport.TBufferedTransport(self._transport)
+        self._protocol = TBinaryProtocol.TBinaryProtocol(self._transport_diag)
+
         self._conn_mgr_protocol = TMultiplexedProtocol.TMultiplexedProtocol( \
             self._protocol, 'conn_mgr')
-        self._pal_protocol = TMultiplexedProtocol.TMultiplexedProtocol( \
-            self._protocol, 'pal')
-        self._switch_p4_protocol = TMultiplexedProtocol.TMultiplexedProtocol( \
-            self._protocol, 'faas_switch_mac')
-
-        self.client = pd_rpc.Client(self._switch_p4_protocol)
-        self.pal_client = pal_rpc.Client(self._pal_protocol)
         self.conn_mgr = conn_mgr_rpc.Client(self._conn_mgr_protocol)
 
+        self._pal_protocol = TMultiplexedProtocol.TMultiplexedProtocol( \
+            self._protocol, 'pal')
+        self.pal_client = pal_rpc.Client(self._pal_protocol)
+
+        self._switch_p4_protocol = TMultiplexedProtocol.TMultiplexedProtocol( \
+            self._protocol, 'faas_switch_mac')        
+        self.client = pd_rpc.Client(self._switch_p4_protocol)
+
         # Starts the switch daemon RPC connection.
-        self._transport.open()
+        self._transport_diag.open()
 
         # |self.sess_hdl| is the session handler that works for all RPCs.
         self.sess_hdl = self.conn_mgr.client_init()
@@ -127,10 +130,15 @@ class ThriftInterface(object):
             '21/0': kSwitchPortWorker2, \
             '19/0': kSwitchPortTraffic,}
 
-    def __del__(self):
+    def cleanup(self):
         # Close the thrift connection.
-        self.conn_mgr.client_cleanup(self.sess_hdl)
-        self._transport.close()
+        if self.sess_hdl:
+            print "closing session"
+            status = self.conn_mgr.client_cleanup(self.sess_hdl)
+        if self._transport_diag:
+            self._transport_diag.close()
+        if self._transport:
+            self._transport.close()
 
     # Returns the number of entries in the table with |table_name|.
     def dump_table(self, table_name):
@@ -326,6 +334,11 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
     _tables = {}
     _device_ports = {}
     _faas_channel = grpc.insecure_channel(kFaaSServerAddress)
+    _flows = set()
+    _packets_counter = 0
+    _flows_counter = 0
+    _sniffer_thread = None
+    _stop = threading.Event()
 
     def __init__(self):
         # Catches the SIGINT (Ctrl+C) and SIGTSTP (Ctrl+Z).
@@ -364,10 +377,20 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
 
         self.setup_all_ports()
 
+        self._flows = set()
+        self._packets_counter = 0
+        self._flows_counter = 0
+
     def cleanup_system(self):
-        # Cleanup:
+        # Stops the packet sniffer.
+        self._stop.set()
+        if self._sniffer_thread != None:
+            self._sniffer_thread.join()
+        # Cleans up.
         self.delete_all_ports()
         self.delete_all_table_entries()
+        self._interface.cleanup()
+        self._interface = None
         return
 
     # This function notifies the switch ASIC to set up all related switch ports.
@@ -396,6 +419,7 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
 
         entry_handler = self._tables[table_name].get_table_entry(entry_key)
         if not entry_handler:
+            # |entry_handler| is invalid.
             print "Error: no matching table entry"
             return
 
@@ -424,6 +448,8 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
         if self._tables[table_name].has_table_entry(entry_key):
             #print "Error: Duplicated entry (flow)"
             return
+        if self._interface == None:
+            return
 
         #print self.dump_table_entry(table_name)
         # |entry_handler| is an integer that represents the rule index.
@@ -431,11 +457,31 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
         # Stores the entry in a dict maintained by the table.
         self._tables[table_name].add_table_entry(entry_key, entry_handler)
 
+    def packet_sniffer(self, interface):
+        def _sniff(interface):
+            sniff(iface=interface, \
+                prn=lambda x: self.process_cpu_pkt(x), \
+                stop_filter=lambda x: self.is_stop())
+
+        self._sniffer_thread = threading.Thread(target=_sniff, args=(interface,))
+        self._sniffer_thread.start()
+
     def process_cpu_pkt(self, packet):
         try:
             #print 'Get a packet'
             if IP not in packet or TCP not in packet:
                 return
+            self._packets_counter += 1
+
+            table_name = "faas_conn_table"
+            flowlet = (packet[IP].src, packet[IP].dst, packet[IP].proto, \
+                packet[TCP].sport, packet[TCP].dport)
+            if flowlet in self._flows:
+                return
+
+            # Inserts a placeholder for this new flow.
+            self._flows.add(flowlet)
+            self._flows_counter += 1
 
             flow_info = message_pb.FlowInfo()
             # Parses |flow_info| from the packet as it is the first packet of the flow.
@@ -453,7 +499,6 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
                 return
 
             binary_dmac = (response.dmac).replace(":", "").decode("hex")
-            table_name = "faas_conn_table"
             action = "faas_conn_table_hit"
             args = [packet[IP].src, packet[IP].dst, \
                 packet[IP].proto, \
@@ -466,6 +511,9 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
         except Exception as e:
             print('Error:', e)
 
+    def is_stop(self):
+        return self._stop.is_set()
+
     ## The following functions implement gRPC server function calls.
     # |request| is an FlowTableEntry.
     def DeleteFlowEntry(self, request, context):
@@ -476,10 +524,11 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
 
 
 class FaaSSwitchCLI(cmd.Cmd):
-    _grpc_server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     _switch_controller = SwitchControlService()
+    _grpc_server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     switch_rpc.add_SwitchControlServicer_to_server(_switch_controller, _grpc_server)
     _grpc_server.add_insecure_port(kSwitchServerAddress)
+    # Two background threads.
     _grpc_thread = threading.Thread(target=_grpc_server.start()) # Set up gRPC server
 
     def preloop(self):
@@ -488,6 +537,7 @@ class FaaSSwitchCLI(cmd.Cmd):
 
     def postloop(self):
         self._switch_controller.cleanup_system()
+        sys.exit(0)
         return
 
     def do_start(self, args):
@@ -500,7 +550,14 @@ class FaaSSwitchCLI(cmd.Cmd):
         if len(args) > 0 and len(args[0]) > 0:
             interface = args[0]
 
-        sniff(iface=interface, prn=lambda x: self._switch_controller.process_cpu_pkt(x))
+        # Set up packet sniffer
+        self._switch_controller.packet_sniffer(interface)
+        return
+
+    def do_stat(self, args):
+        print "Traffic Info:"
+        print "  Flows=%d\n" %(self._switch_controller._flows_counter)
+        print "  Packets=%d\n" %(self._switch_controller._packets_counter)
         return
 
     def do_dump(self, args):
@@ -562,12 +619,7 @@ class FaaSSwitchCLI(cmd.Cmd):
         print '4. Exit/Quit'
         return
 
-    def do_exit(self, args):
-        "Exit"
-        return True
-
     def do_quit(self, args):
-        "Exit"
         return True
 
 
