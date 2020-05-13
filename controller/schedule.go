@@ -72,16 +72,34 @@ func (g *DAG) findAvailableSGroup() *SGroup {
 		}
 
 		// Skips overloaded SGroups.
-		if sg.GetQLoad() > 40 {
-			continue
-		}
-		if sg.GetPktLoad() > 60 {
+		if sg.GetQLoad() > 40 && sg.GetPktLoad() > 60 {
 			continue
 		}
 
 		if selected == nil {
 			selected = sg
-		} else if selected.GetPktRate() < sg.GetPktRate() {
+		} else if selected.GetPktRate() > sg.GetPktRate() {
+			selected = sg
+		}
+	}
+	if selected != nil {
+		return selected
+	}
+
+	for _, sg := range g.sgroups {
+		// Skips if there are instances not ready.
+		if !sg.IsReady() {
+			continue
+		}
+
+		// Skips overloaded SGroups.
+		if sg.GetPktLoad() > 80 {
+			continue
+		}
+
+		if selected == nil {
+			selected = sg
+		} else if selected.GetPktRate() > sg.GetPktRate() {
 			selected = sg
 		}
 	}
