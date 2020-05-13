@@ -37,7 +37,7 @@ func (insPool *InstancePool) get(port int) *Instance {
 
 	ins, exist := insPool.pool[port]
 	if !exist {
-		glog.Errorf("Try to remove Instance[%d], not found in StartupPool", port)
+		glog.Errorf("Instance[%d] is not found in StartupPool", port)
 		return nil
 	}
 	return ins
@@ -58,8 +58,24 @@ func (insPool *InstancePool) remove(port int) {
 	delete(insPool.pool, port)
 }
 
+// Implements Len, Less and Swap for using "sort" package.
+type SGroupSlice []*SGroup
+
+func (pool SGroupSlice) Len() int {
+	return len(pool)
+}
+
+func (pool SGroupSlice) Less(i, j int) bool {
+	return pool[i].GetPktRate() < pool[j].GetPktRate()
+}
+
+func (pool SGroupSlice) Swap(i, j int) {
+	pool[i], pool[j] = pool[j], pool[i]
+}
+
+// A thread-safe implementation of SGroupSlice
 type SGroupPool struct {
-	pool  []*SGroup
+	pool  SGroupSlice
 	mutex sync.Mutex
 }
 
@@ -113,3 +129,6 @@ func (sgPool *SGroupPool) remove(groupID int) {
 
 	glog.Errorf("Try to remove SGroup[%d], not found in SGroupPool", groupID)
 }
+
+// Cores is the container of CPU cores on a Worker.
+type Cores []*Core

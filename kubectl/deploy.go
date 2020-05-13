@@ -74,8 +74,8 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string, funcType stri
 								// limits are specified but requests are not.
 								"resources": map[string]interface{}{
 									"limits": map[string]interface{}{
-										"memory":        "48Mi",
-										"hugepages-2Mi": "48Mi",
+										"memory":        "128Mi",
+										"hugepages-2Mi": "128Mi",
 									},
 								},
 								"name":            funcType,
@@ -244,7 +244,7 @@ func (k8s *KubeController) makeSchedDeploymentSpec(nodeName string, hostPort int
 								// limits are specified but requests are not.
 								"resources": map[string]interface{}{
 									"limits": map[string]interface{}{
-										"memory":        "50Mi",
+										"memory": "50Mi",
 									},
 								},
 								"name":            "sched",
@@ -275,7 +275,7 @@ func (k8s *KubeController) makeSchedDeploymentSpec(nodeName string, hostPort int
 	return deployment
 }
 
-// Creates a CooperativeSched instance on node |nodeName|. Assigns 
+// Creates a CooperativeSched instance on node |nodeName|. Assigns
 // TCP port |hostPort| to the instance.
 func (k8s *KubeController) CreateSchedDeployment(nodeName string, hostPort int) (string, error) {
 	api := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
@@ -296,7 +296,7 @@ func (k8s *KubeController) CreateSchedDeployment(nodeName string, hostPort int) 
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
 // Essentially, it will call function makeDPDKDeploymentSpec to generate a deployment in kubernetes.
 func (k8s *KubeController) CreateDeployment(nodeName string, funcType string, hostPort int,
-		pcie string, isPrimary string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) (string, error) {
+	pcie string, isPrimary string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) (string, error) {
 	api := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 	deploy := k8s.dynamicClient.Resource(api).Namespace(k8s.namespace)
 

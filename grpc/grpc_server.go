@@ -20,7 +20,7 @@ type Controller interface {
 
 	InstanceSetUp(nodeName string, port int, tid int) error
 
-	InstanceUpdateStats(nodeName string, port int, qlen int, kpps int) error
+	InstanceUpdateStats(nodeName string, port int, qlen int, kpps int, cycle int) error
 }
 
 type GRPCServer struct {
@@ -82,8 +82,9 @@ func (s *GRPCServer) InstanceUpdateStats(context context.Context, msg *pb.Traffi
 	port := int(msg.GetPort())
 	qlen := int(msg.GetQlen())
 	kpps := int(msg.GetKpps())
+	cycle := int(msg.GetCycle())
 
-	if err := s.FaaSController.InstanceUpdateStats(nodeName, port, qlen, kpps); err != nil {
+	if err := s.FaaSController.InstanceUpdateStats(nodeName, port, qlen, kpps, cycle); err != nil {
 		return &pb.Error{Code: 1, Errmsg: err.Error()}, err
 	}
 

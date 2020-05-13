@@ -2,45 +2,69 @@ package controller
 
 import (
 	"fmt"
+
+	glog "github.com/golang/glog"
 )
 
 // The abstraction of CPU core.
-// |sGroups| is a chain of instances in the core. sGroup is the minimal scheduling unit and will
-//           run to completion (without preemption) for a batch of packets when it is scheduled.
+// |sGroups| contains all sgroups managed by this core.
+// Each SGroup is a minimal scheduling unit and is run-to-completion.
 type Core struct {
-	sGroups []*SGroup
+	coreID  int
+	sGroups SGroupSlice
 }
 
-func newCore() *Core {
+func NewCore(coreID int) *Core {
 	core := Core{
+		coreID:  coreID,
 		sGroups: make([]*SGroup, 0),
 	}
 	return &core
 }
 
 func (c *Core) String() string {
-	info := ""
+	info := fmt.Sprintf("Core[%d] [", c.coreID)
+
+	sumLoad := 0
 	if len(c.sGroups) == 0 {
-		return "Empty"
+		info += fmt.Sprintf("Empty")
+	} else {
+		for _, sg := range c.sGroups {
+			info += fmt.Sprintf("<%d> ", sg.ID())
+			sumLoad += sg.GetPktLoad()
+		}
 	}
-	for _, sg := range c.sGroups {
-		info += fmt.Sprintf("<%s> ", sg)
-	}
+
+	info += fmt.Sprintf("] (Load=%d)", sumLoad)
 	return info
 }
 
-// Attach a SGroup |sg| on the core.
-func (c *Core) attachSGroup(sg *SGroup) {
-	c.sGroups = append(c.sGroups, sg)
+func (c *Core) ID() int {
+	return c.coreID
 }
 
-// Detach sGroup with |groupId| on the core.
-func (c *Core) detachSGroup(groupId int) *SGroup {
-	for i, sg := range c.sGroups {
-		if sg.ID() == groupId {
-			c.sGroups = append(c.sGroups[:i], c.sGroups[i+1:]...)
-			return sg
+// Note: do not append duplicate SGroups to a Core.
+// Attach a SGroup |sgroup| on the core.
+func (c *Core) attachSGroup(sgroup *SGroup) {
+	for _, sg := range c.sGroups {
+		if sg.ID() == sgroup.ID() {
+			glog.Errorf("SGroup[%d] has already attached to Core[%d]", sgroup.ID(), c.coreID)
+			return
 		}
 	}
-	return nil
+
+	// |sgroup| does not present on Core |c|.
+	c.sGroups = append(c.sGroups, sgroup)
+}
+
+// Detach a SGroup |sgroup| on the core.
+func (c *Core) detachSGroup(sgroup *SGroup) {
+	for i, sg := range c.sGroups {
+		if sg.ID() == sgroup.ID() {
+			c.sGroups = append(c.sGroups[:i], c.sGroups[i+1:]...)
+			return
+		}
+	}
+
+	glog.Errorf("SGroup[%d] is not found on Core[%d]", sgroup.ID(), c.coreID)
 }

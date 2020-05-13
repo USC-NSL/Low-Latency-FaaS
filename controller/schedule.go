@@ -3,6 +3,10 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"sort"
+	"time"
+
+	glog "github.com/golang/glog"
 )
 
 // This is the place to implement resource allocation.
@@ -18,22 +22,25 @@ import (
 // TODO: Complete the reasons for returning errors.
 func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 	srcPort uint32, dstPort uint32, proto uint32) (string, error) {
+	//return "00:00:00:00:00:01", nil
 	var dag *DAG = nil
 	for _, d := range c.dags {
 		if d.Match(srcIP, dstIP, srcPort, dstPort, proto) {
 			dag = d
+			break
 		}
 	}
 
 	// The flow does not match any activated DAGs. Just ignore it.
-	// TODO(Jianfeng): handle the drop case properly.
 	if dag == nil || (!dag.isActive) {
-		return "None", nil
+		glog.Infof("This new flow does not match any DAG.")
+		return "none", nil
 	}
 
-	var sg *SGroup = nil
+	sg := dag.findAvailableSGroup()
 	// Picks an active SGroup |sg| and assigns the flow to it.
-	if sg = dag.findActiveSGroup(); sg != nil {
+	if sg != nil {
+		//glog.Infof("SGroup[%d], mac=%s, load=%d", sg.ID(), dmacMappings[sg.pcieIdx], sg.GetPktLoad())
 		return dmacMappings[sg.pcieIdx], nil
 	}
 
@@ -51,17 +58,48 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 	// All active SGroups are running heavily. No free SGroups
 	// are available. Just drop the packet. (Ideally, we should
 	// never reach here if the cluster has enough resources.)
-	return "None", errors.New(fmt.Sprintf("No enough resources"))
+	return "none", errors.New(fmt.Sprintf("No enough resources"))
 }
 
 // Selects an active |SGroup| for the logical NF DAG |g|. Picks
 // the one with the lowest traffic load (packet rate).
-func (g *DAG) findActiveSGroup() *SGroup {
+func (g *DAG) findAvailableSGroup() *SGroup {
 	var selected *SGroup = nil
 	for _, sg := range g.sgroups {
+		// Skips if there are instances not ready.
+		if !sg.IsReady() {
+			continue
+		}
+
+		// Skips overloaded SGroups.
+		if sg.GetQLoad() > 40 && sg.GetPktLoad() > 60 {
+			continue
+		}
+
 		if selected == nil {
 			selected = sg
-		} else if selected.pktRateKpps < sg.pktRateKpps {
+		} else if selected.GetPktRate() > sg.GetPktRate() {
+			selected = sg
+		}
+	}
+	if selected != nil {
+		return selected
+	}
+
+	for _, sg := range g.sgroups {
+		// Skips if there are instances not ready.
+		if !sg.IsReady() {
+			continue
+		}
+
+		// Skips overloaded SGroups.
+		if sg.GetPktLoad() > 80 {
+			continue
+		}
+
+		if selected == nil {
+			selected = sg
+		} else if selected.GetPktRate() > sg.GetPktRate() {
 			selected = sg
 		}
 	}
@@ -80,37 +118,138 @@ func (c *FaaSController) getFreeSGroup() *SGroup {
 	return nil
 }
 
-/*
-// Find available worker to create a new |sGroup|.
-// Return (sGroup, coreId, error).
-// If unavailable to allocate, return (nil, -1, error).
-func (c *FaaSController) FindCoreToServeSGroup(funcTypes []string) (*SGroup, int, error) {
-	// TODO: Modify allocating strategy
-	for _, worker := range c.workers {
-		// TODO: Confirm there is enough pci for creating container.
-		if coreId := worker.findAvailableCore(); coreId != -1 {
-			if sGroup, err := worker.createSGroup(funcTypes); err != nil {
-				return nil, -1, err
-			} else {
-				return sGroup, coreId, err
+// The per-worker NF thread scheduler.
+// This function monitors traffic loads for all deployed SGroups.
+// It packs SGroups into a minimum number of CPU cores.
+// Algorithm: Best Fit Decreasing.
+func (w *Worker) scheduleOnce() {
+	// Stops all updates on Worker |w| temporally.
+	w.sgMutex.Lock()
+	defer w.sgMutex.Unlock()
+
+	sort.Sort(sort.Reverse(w.sgroups))
+
+	coreID := 0
+	load := 80
+
+	for _, sg := range w.sgroups {
+		if !sg.IsReady() {
+			// Skips if |sg| is not ready for scheduling.
+			continue
+		} else if !sg.IsActive() {
+			// Detaches |sg| if it is still being scheduled.
+			if sg.IsSched() {
+				if err := sg.detachSGroup(); err != nil {
+					glog.Errorf("Failed to detach SGroup[%d]. %v", sg.ID(), err)
+					continue
+				}
+
+				// |sg| should be detached successfully.
+				if sg.IsSched() {
+					glog.Errorf("SGroup[%d] was Detached but still running!", sg.ID())
+				}
 			}
+
+			continue
+		}
+
+		sgLoad := sg.GetPktLoad()
+
+		if load+sgLoad < 80 {
+			load = load + sgLoad
+		} else if coreID < 7 {
+			coreID += 1
+			load = sgLoad
+		} else {
+			glog.Errorf("Worker[%s] runs out of cores", w.name)
+			break
+		}
+
+		// Enforce scheduling.
+		// Note: be careful about deadlocks.
+		if err := sg.attachSGroup(coreID); err != nil {
+			glog.Errorf("Failed to attach SGroup[%d] to Core[%d]", sg.ID(), coreID)
 		}
 	}
-	return nil, -1, errors.New(fmt.Sprintf("could not find available worker"))
 }
-*/
 
-// The per-worker NF thread scheduler.
-func (w *Worker) schedule() error {
-	/*
-		// TODO: rewrite the CPU scheduling algorithm.
-		sGroup, coreId, err := c.FindCoreToServeSGroup(funcTypes)
-		if err != nil {
-			return "", err
+// Algorithm:
+// Best-Fit Decreasing for non-overloaded SGroups.
+// Rescheduling for overloaded SGroups.
+func (w *Worker) advancedFitScheduleOnce() {
+	// Stops all updates on Worker |w| temporally.
+	w.sgMutex.Lock()
+	defer w.sgMutex.Unlock()
+
+	sort.Sort(sort.Reverse(w.sgroups))
+
+	coreID := 0
+	load := 80
+
+	for _, sg := range w.sgroups {
+		if !sg.IsReady() {
+			// Skips if |sg| is not ready for scheduling.
+			continue
+		} else if !sg.IsActive() {
+			// Detaches |sg| if it is still being scheduled.
+			if sg.IsSched() {
+				if sg.GetCoreID() != 1 {
+					if err := sg.attachSGroup(1); err != nil {
+						glog.Errorf("Failed to attach SGroup[%d] to Core #1. %v", sg.ID(), err)
+						continue
+					}
+
+					// |sg| should be attached successfully.
+					if sg.GetCoreID() != 1 || !sg.IsSched() {
+						glog.Errorf("SGroup[%d] was Attached to Core #1 but not running on it!", sg.ID())
+					}
+				}
+
+				if err := sg.detachSGroup(); err != nil {
+					glog.Errorf("Failed to detach SGroup[%d]. %v", sg.ID(), err)
+					continue
+				}
+
+				// |sg| should be detached successfully.
+				if sg.IsSched() {
+					glog.Errorf("SGroup[%d] was Detached but still running!", sg.ID())
+				}
+			}
+
+			continue
 		}
-		sGroup.worker.attachSGroup(sGroup.groupId, coreId)
-		// TODO: Packet loss due to busy waiting
-		return dmacMappings[sGroup.pcieIdx], nil
-	*/
-	return nil
+
+		sgLoad := sg.GetPktLoad()
+
+		if load+sgLoad < 80 {
+			load = load + sgLoad
+		} else if coreID < 7 {
+			coreID += 1
+			load = sgLoad
+		} else {
+			glog.Errorf("Worker[%s] runs out of cores", w.name)
+			break
+		}
+
+		// Enforce scheduling.
+		// Note: be careful about deadlocks.
+		if err := sg.attachSGroup(coreID); err != nil {
+			glog.Errorf("Failed to attach SGroup[%d] to Core[%d]", sg.ID(), coreID)
+		}
+	}
+}
+
+// Go routine that runs on each worker to rebalance traffic loads
+// among available CPU cores.
+func (w *Worker) ScheduleLoop() {
+	for {
+		select {
+		case <-w.schedOp:
+			w.wg.Done()
+			return
+		default:
+			w.advancedFitScheduleOnce()
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
 }

@@ -47,7 +47,7 @@ func NewFaaSController(isTest bool) *FaaSController {
 }
 
 func (c *FaaSController) createWorker(name string, ip string,
-		coreNumOffset int, coreCount int) {
+	coreNumOffset int, coreCount int) {
 	if _, exists := c.workers[name]; exists {
 		return
 	}
@@ -119,12 +119,28 @@ func (c *FaaSController) ConnectNFs(user string, upNF string, downNF string) err
 }
 
 // Starts running a NF DAG.
-func (c *FaaSController) ActivateDAG(user string) {
-	for user, dag := range c.dags {
-		if user == user || user == "all" {
-			dag.Activate()
-		}
+func (c *FaaSController) ActivateDAG(user string) error {
+	dag, exists := c.dags[user]
+	if !exists {
+		return errors.New(fmt.Sprintf("User [%s] has no NFs.", user))
 	}
+
+	// For testing only, incoming packets always have a dstPort 8080.
+	dag.addFlow("", "", 0, 8080, 0)
+
+	dag.Activate()
+
+	for {
+		sg := c.getFreeSGroup()
+		if sg == nil {
+			break
+		}
+
+		sg.worker.createSGroup(sg, dag)
+	}
+
+	glog.Info("DAG is activated.")
+	return nil
 }
 
 // Prints all DAGs managed by |FaaSController|.
@@ -158,6 +174,9 @@ func (c *FaaSController) CreateSGroup(nodeName string, nfs []string) error {
 	glog.Infof("Deploy a DAG %v", dag.chains)
 
 	n := len(w.freeSGroups)
+	if n <= 0 {
+		return fmt.Errorf("Worker[%s] does not have free SGroups.", w.name)
+	}
 	var sg *SGroup = w.freeSGroups[n-1]
 	w.freeSGroups = w.freeSGroups[:(n - 1)]
 
@@ -180,19 +199,23 @@ func (c *FaaSController) DestroySGroup(nodeName string, groupID int) error {
 }
 
 func (c *FaaSController) AttachSGroup(nodeName string, groupID int, coreId int) error {
-	if _, exists := c.workers[nodeName]; !exists {
+	w, exists := c.workers[nodeName]
+	if !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
 
-	return c.workers[nodeName].attachSGroup(groupID, coreId)
+	sg := w.getSGroup(groupID)
+	return sg.attachSGroup(coreId)
 }
 
 func (c *FaaSController) DetachSGroup(nodeName string, groupID int) error {
-	if _, exists := c.workers[nodeName]; !exists {
+	w, exists := c.workers[nodeName]
+	if !exists {
 		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
 	}
 
-	return c.workers[nodeName].detachSGroup(groupID)
+	sg := w.getSGroup(groupID)
+	return sg.detachSGroup()
 }
 
 // Note: gRPC functions
@@ -200,12 +223,13 @@ func (c *FaaSController) DetachSGroup(nodeName string, groupID int) error {
 // Called when receiving gRPC request for an new instance setting up.
 // The new instance is on worker |nodeName| with allocated port |port| and TID |tid|.
 func (c *FaaSController) InstanceSetUp(nodeName string, port int, tid int) error {
-	if _, exists := c.workers[nodeName]; !exists {
-		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
+	w, exists := c.workers[nodeName]
+	if !exists {
+		return fmt.Errorf("Worker[%s] does not exist", nodeName)
 	}
 
-	ins := c.workers[nodeName].insStartupPool.get(port)
-	if ins.sg == nil {
+	ins := w.insStartupPool.get(port)
+	if ins == nil || ins.sg == nil {
 		return errors.New(fmt.Sprintf("SGroup not found"))
 	}
 
@@ -214,12 +238,20 @@ func (c *FaaSController) InstanceSetUp(nodeName string, port int, tid int) error
 }
 
 // Called when receiving gRPC request updating traffic info.
-// |qlen| is the NIC rx queue length. |kpps| is the traffic volume.
+// |qlen| is the NIC rx queue length. |kpps| is the incoming traffic
+// rate in (Kpps). |cycle| is the per-packet cycle cost.
 // Returns error if this controller failed to update traffic info.
-func (c *FaaSController) InstanceUpdateStats(nodeName string, groupID int, qlen int, kpps int) error {
-	if _, exists := c.workers[nodeName]; !exists {
-		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
+func (c *FaaSController) InstanceUpdateStats(nodeName string, port int, qlen int, kpps int, cycle int) error {
+	w, exists := c.workers[nodeName]
+	if !exists {
+		return fmt.Errorf("Worker[%s] does not exist", nodeName)
 	}
 
-	return c.workers[nodeName].updateSGroup(groupID, qlen, kpps)
+	ins := w.insStartupPool.get(port)
+	if ins == nil || ins.sg == nil {
+		return fmt.Errorf("SGroup not found")
+	}
+
+	ins.sg.UpdateTrafficInfo(qlen, kpps)
+	return nil
 }

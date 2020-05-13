@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -14,7 +15,7 @@ import (
 )
 
 const (
-	vSwitchPort = 10514
+	vSwitchPort   = 10514
 	schedulerPort = 10515
 )
 
@@ -32,6 +33,9 @@ const (
 // This is to prevent conflicts on host TCP ports.
 // |pciePool| manages pcie port taken by sGroup on the node.
 // |insStartupPool| is a pool for instances that are on start-up.
+// |op| is a channle to FreeSGroup maintainer(go routine).
+// |wg| is a waiting group for all go routines of this worker.
+// |sgMutex| is for protecting |sgroups| and |freeSGroups|.
 type Worker struct {
 	grpc.VSwitchGRPCHandler
 	grpc.SchedulerGRPCHandler
@@ -39,12 +43,14 @@ type Worker struct {
 	ip               string
 	sched            *Instance
 	cores            map[int]*Core
-	sgroups          []*SGroup
-	freeSGroups      []*SGroup
+	sgroups          SGroupSlice
+	freeSGroups      SGroupSlice
 	instancePortPool *utils.IndexPool
 	pciePool         *utils.IndexPool
 	insStartupPool   *InstancePool
 	op               chan FaaSOP
+	schedOp          chan FaaSOP
+	wg               sync.WaitGroup
 	sgMutex          sync.Mutex
 }
 
@@ -60,15 +66,19 @@ func NewWorker(name string, ip string, coreNumOffset int, coreNum int) *Worker {
 		pciePool:         utils.NewIndexPool(0, len(PCIeMappings)),
 		insStartupPool:   NewInstancePool(),
 		op:               make(chan FaaSOP, 64),
+		schedOp:          make(chan FaaSOP, 64),
 	}
 
 	// coreId is ranged between [coreNumOffset, coreNumOffset + coreNum)
 	for i := 0; i < coreNum; i++ {
-		w.cores[i+coreNumOffset] = newCore()
+		coreID := i + coreNumOffset
+		w.cores[coreID] = NewCore(coreID)
 	}
 
 	// Starts a background routine for maintaining |freeSGroups|
-	go w.CreateFreeSGroups(w.op)
+	w.wg.Add(2)
+	go w.RunFreeSGroupFactory(w.op)
+	go w.ScheduleLoop()
 
 	// TODO(Zhuojin): remove VSwitchGRPCHandler.
 	//if err := w.VSwitchGRPCHandler.EstablishConnection(fmt.Sprintf("%s:%d", ip, vSwitchPort)); err != nil {
@@ -85,8 +95,15 @@ func (w *Worker) String() string {
 	defer w.sgMutex.Unlock()
 
 	info := fmt.Sprintf("Worker [%s] at %s \n Core:", w.name, w.ip)
-	for coreId, core := range w.cores {
-		info += fmt.Sprintf("\n  %d %s", coreId, core)
+
+	coreIDs := []int{}
+	for coreID := range w.cores {
+		coreIDs = append(coreIDs, coreID)
+	}
+
+	sort.Ints(coreIDs)
+	for _, id := range coreIDs {
+		info += fmt.Sprintf("\n  %s", w.cores[id])
 	}
 
 	info += "\n SGroups:"
@@ -110,14 +127,14 @@ func (w *Worker) createSched() error {
 
 	schedAddr := fmt.Sprintf("%s:%d", w.ip, port)
 	start := time.Now()
-	for time.Now().Unix() - start.Unix() < 10 {
+	for time.Now().Unix()-start.Unix() < 30 {
 		err := w.SchedulerGRPCHandler.EstablishConnection(schedAddr)
 		if err == nil {
 			break
 		}
 
 		// Backoff..
-		time.Sleep(1000 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 	}
 
 	if !w.SchedulerGRPCHandler.IsConnEstablished() {
@@ -164,8 +181,8 @@ func (w *Worker) destroyInstance(ins *Instance) error {
 }
 
 func (w *Worker) createAllFreeSGroups() {
-	//for i := 0; i < w.pciePool.Size(); i++ {
-	for i := 0; i < 2; i++ {
+	//for i := 0; i < 7; i++ {
+	for i := 0; i < w.pciePool.Size(); i++ {
 		w.op <- FREE_SGROUP
 	}
 }
@@ -252,71 +269,46 @@ func (w *Worker) getSGroup(groupID int) *SGroup {
 	return nil
 }
 
-/*
-// TODO: Adjust core selection strategy.
-func (w *Worker) findAvailableCore() int {
-	for coreId, core := range w.cores {
-		if len(core.sGroups) == 0 {
-			return coreId
-		}
-	}
-	return -1
-}
-*/
-
-// Updates |qlen| and |kpps| for the sgroup with |groupID|.
-// TODO (Jianfeng): trigger extra scaling operations.
-func (w *Worker) updateSGroup(groupID int, qlen int, kpps int) error {
-	sg := w.getSGroup(groupID)
-	if sg == nil {
-		return fmt.Errorf("SGroup %d not found on worker[%s]", groupID, w.name)
-	}
-
-	sg.incQueueLength = qlen
-	sg.pktRateKpps = kpps
-	return nil
-}
-
 // Migrates/Schedules a SGroup with |groupId| to core |coreId|.
-func (w *Worker) attachSGroup(groupID int, coreID int) error {
-	if _, exists := w.cores[coreID]; !exists {
-		return errors.New(fmt.Sprintf("core %d not found", coreID))
+func (w *Worker) attachSGroup(sg *SGroup, coreID int) error {
+	// Removes |sg| from its previous core.
+	prevCoreID := sg.GetCoreID()
+	if prevCoreID != INVALID_CORE_ID {
+		prevCore, exists := w.cores[prevCoreID]
+		if !exists {
+			return errors.New(fmt.Sprintf("Core[%d] not found", prevCoreID))
+		}
+		prevCore.detachSGroup(sg)
 	}
 
-	sg := w.getSGroup(groupID)
-	if sg == nil {
-		return fmt.Errorf("SGroup %d not found on worker[%s]", groupID, w.name)
-	}
-
-	// Schedules |sg| on the new core.
-
-	// Send gRPC to inform scheduler.
+	// Sends gRPC to inform scheduler.
 	if status, err := w.AttachChain(sg.tids, coreID); err != nil {
 		return err
 	} else if status.GetCode() != 0 {
-		return errors.New(fmt.Sprintf("error from gRPC request AttachChain: %s", status.GetErrmsg()))
+		return errors.New(fmt.Sprintf("AttachChain gRPC request errmsg: %s", status.GetErrmsg()))
 	}
+
+	// Appends |sg| to |core|.
+	core, exists := w.cores[coreID]
+	if !exists {
+		return errors.New(fmt.Sprintf("Core[%d] not found", coreID))
+	}
+	core.attachSGroup(sg)
+
 	return nil
 }
 
 // Detaches a SGroup, indexed by |groupID|, on its running core.
 // The SGroup is still pinned to its original running core, but won't
 // get executed.
-func (w *Worker) detachSGroup(groupID int) error {
-	// Move it from core |coreId| to freeSGroups.
-	//sGroup := w.cores[coreId].detachSGroup(groupID)
-
-	sg := w.getSGroup(groupID)
-	if sg == nil {
-		return fmt.Errorf("SGroup %d not found on worker[%s]", groupID, w.name)
-	}
-
+func (w *Worker) detachSGroup(sg *SGroup) error {
 	// Send gRPC to inform scheduler.
 	if status, err := w.DetachChain(sg.tids, 0); err != nil {
 		return err
 	} else if status.GetCode() != 0 {
-		return errors.New(fmt.Sprintf("error from gRPC request DetachChain: %s", status.GetErrmsg()))
+		return errors.New(fmt.Sprintf("DetachChain gRPC request errmsg: %s", status.GetErrmsg()))
 	}
+
 	return nil
 }
 
@@ -325,7 +317,12 @@ func (w *Worker) detachSGroup(groupID int) error {
 func (w *Worker) Close() error {
 	errmsg := []string{}
 
-	// Send gRPC to shutdown scheduler.
+	// Shutdowns and waits for all background go routines.
+	w.op <- SHUTDOWN
+	w.schedOp <- SHUTDOWN
+	w.wg.Wait()
+
+	// Sends gRPC to shutdown scheduler.
 	res, err := w.KillSched()
 	if err != nil {
 		msg := "Connection failed when killing CooperativeSched"
@@ -336,9 +333,6 @@ func (w *Worker) Close() error {
 	}
 
 	w.destroyInstance(w.sched)
-
-	// Shutdown all background go routines.
-	w.op <- SHUTDOWN
 
 	// Cleans up SGroups and free SGroups.
 	w.destroyAllSGroups()

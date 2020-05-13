@@ -10,7 +10,7 @@ PROTOS_DIR = ./proto
 
 .PHONY : all clean fmt
 
-all : protos $(PROD)
+all : fmt protos $(PROD)
 
 fmt :
 	@gofmt -l -s -w .
