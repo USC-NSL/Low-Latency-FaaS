@@ -59,9 +59,10 @@ import protobuf.faas_service_pb2_grpc as faas_rpc
 # Todo(Jianfeng): remove these hardcoded IPs.
 kSwitchServerAddress = "[::]:10516"
 kFaaSServerAddress = "204.57.3.169:10515"
-kSwitchPortTraffic = 20
-kSwitchPortWorker1 = 132
-kSwitchPortWorker2 = 36
+# 36 is the Netronome port.
+kSwitchPortTraffic = 36
+kSwitchPortWorker1 = 20
+kSwitchPortWorker2 = 132
 
 def int_to_bytes(n, length, endianess='big'):
     h = '%x' % n
@@ -126,9 +127,9 @@ class ThriftInterface(object):
 
         # |_dev_ports| records all related switch ports.
         self._dev_ports = { \
-            '1/0': kSwitchPortWorker1, \
-            '21/0': kSwitchPortWorker2, \
-            '19/0': kSwitchPortTraffic,}
+            '19/0': kSwitchPortWorker1, \
+            '1/0': kSwitchPortWorker2, \
+            '21/0': kSwitchPortTraffic,}
 
     def cleanup(self):
         # Close the thrift connection.
@@ -207,8 +208,12 @@ class ThriftInterface(object):
 
 # This class implements the abstract switch table that manages table entries
 # in a real switch table.
+# faas_port_table:
+# (ingress port) -> (egress port)
+#
 # faas_conn_table:
 # (ip.src) (ip.dst) (ip.protocol) (tcp.srcPort) (tcp.dstPort) -> (spi, si, context)
+#
 # faas_instance_table:
 # (spi) (si) -> (switchPort)
 class SwitchTable(object):
@@ -233,7 +238,32 @@ class SwitchTable(object):
         match_spec = None
         action_spec = None
         entry_key = None
-        if self._name == 'faas_conn_table':
+
+        # Handles different switch tables.
+        if self._name == 'faas_port_table':
+            if len(args) < 2:
+                return None, None, None
+
+            ingress_port = int(args[0])
+            match_spec = faas_switch_mac_faas_port_table_match_spec_t( \
+                ig_intr_md_ingress_port=ingress_port, \
+                )
+            entry_key = (ingress_port)
+
+            action_args = args[1:]
+            if action == 'faas_port_table_hit':
+                if len(action_args) != 1:
+                    return None, None, None
+
+                egress_port = int(action_args[0])
+                # API: (faas_port_table)_table_add_with_(faas_port_table_hit)
+                action_spec = faas_switch_mac_faas_port_table_hit_action_spec_t( \
+                    action_egress_port=egress_port, \
+                    )
+            elif action == 'faas_port_table_miss':
+                # API: (faas_port_table)_table_add_with_(faas_port_table_miss)
+                pass
+        elif self._name == 'faas_conn_table':
             if len(args) < 5:
                 return None, None, None
 
@@ -289,18 +319,18 @@ class SwitchTable(object):
                 if len(action_args) != 1:
                     return None, None, None
 
-                egressPort = int(action_args[0])
+                egress_port = int(action_args[0])
                 # API: (faas_instance_table)_table_add_with_(faas_instance_table_hit)
-                action_spec = faas_switch_faas_instance_table_hit_action_spec_t( \
-                    action_switchPort=egressPort, \
+                action_spec = faas_switch_mac_faas_instance_table_hit_action_spec_t( \
+                    action_switchPort=egress_port, \
                     )
             elif action == 'faas_instance_table_hit_egress':
                 if len(action_args) != 1:
                     return None, None, None
 
-                egressPort = int(action_args[0])
+                egress_port = int(action_args[0])
                 # API: (faas_instance_table)_table_add_with_(faas_instance_table_hit_egress)
-                action_spec = faas_switch_faas_instance_table_hit_egress_action_spec_t( \
+                action_spec = faas_switch_mac_faas_instance_table_hit_egress_action_spec_t( \
                     action_switchPort=1, \
                     )
             elif action == 'faas_instance_table_miss':
@@ -360,20 +390,25 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
         # Sets up the thrift connection with the switch ASIC.
         self._interface = ThriftInterface()
 
+        self._managed_tables.add('faas_port_table')
         self._managed_tables.add('faas_conn_table')
         for table_name in self._managed_tables:
             self._tables[table_name] = SwitchTable(table_name)
+
+        # |faas_port_table| has two actions.
+        self._tables['faas_port_table'].add_action('faas_port_table_hit')
+        self._tables['faas_port_table'].add_action('faas_port_table_miss')
 
         # |faas_conn_table| has two actions.
         self._tables['faas_conn_table'].add_action('faas_conn_table_hit')
         self._tables['faas_conn_table'].add_action('faas_conn_table_miss')
 
         # 'x/0' : (device port #, port sync mode)
-        # 1/0, 21/0: ubuntu;
-        self._device_ports['1/0'] = (kSwitchPortWorker1, 1)
-        self._device_ports['21/0'] = (kSwitchPortWorker2, 2)
-        # 19/0: uscnsl
-        self._device_ports['19/0'] = (kSwitchPortTraffic, 1)
+        # 1/0, 19/0: ubuntu;
+        self._device_ports['19/0'] = (kSwitchPortWorker1, 1)
+        self._device_ports['1/0'] = (kSwitchPortWorker2, 1)
+        # 21/0: uscnsl
+        self._device_ports['21/0'] = (kSwitchPortTraffic, 2)
 
         self.setup_all_ports()
 
@@ -399,6 +434,22 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
         for port in self._device_ports.keys():
             dev_port, sync_mode = self._device_ports[port]
             self._interface.setup_dev_port(port, dev_port, sync_mode)
+
+        # Adds forwarding rules at the faas_port_table via the thrift switch API.
+        # Makes sure that packets from workers' ports go back to the traffic port.
+        # Otherwise, flows are forwarded back to the original worker's port, and 
+        # dropped by the NIC. This is unnecessary.
+        table_name = "faas_port_table"
+        action = "faas_port_table_hit"
+
+        args = (kSwitchPortWorker1, kSwitchPortTraffic)
+        match_spec, action_spec, entry_key = self._tables[table_name].get_match_action_spec(action, args)
+        self.insert_table_entry(table_name, action, match_spec, action_spec, entry_key)
+
+        args = (kSwitchPortWorker2, kSwitchPortTraffic)
+        match_spec, action_spec, entry_key = self._tables[table_name].get_match_action_spec(action, args)
+        self.insert_table_entry(table_name, action, match_spec, action_spec, entry_key)
+        return
 
     # This function notifies the switch ASIC to disable all switch ports.
     def delete_all_ports(self):
