@@ -10,7 +10,8 @@
 #define TYPE_NSH_VLAN 0x6
 #define TYPE_IPV4 0x0800
 #define TYPE_IPV6 0x0816
-#define CONN_TABLE_SIZE 16000
+#define CONN_TABLE_SIZE 20480
+#define PORT_TABLE_SIZE 64
 #define INSTANCE_TABLE_SIZE 1000
 #define TYPE_TCP 0x06
 #define TYPE_UDP 0x11
@@ -113,6 +114,7 @@ header_type metadata_t {
 		si : 16;
 		controller_flag : 1;
 		drop_flag : 1;
+		port_table_miss_flag : 4;
 		conn_table_miss_flag : 4;
 		instance_table_miss_flag : 4;
 	}
@@ -213,6 +215,8 @@ table sys_drop_apply {
 }
 
 action faas_init_metadata() {
+	modify_field(meta.port_table_miss_flag, 0);
+	modify_field(meta.port_table_miss_flag, 0);
 	modify_field(meta.conn_table_miss_flag, 0);
 	modify_field(meta.instance_table_miss_flag, 0);
 }
@@ -220,6 +224,26 @@ table faas_init_metadata_apply {
     actions { faas_init_metadata; }
     default_action : faas_init_metadata;
     size : 0;
+}
+
+action faas_port_table_hit(egress_port) {
+    modify_field(ig_intr_md_for_tm.ucast_egress_port, egress_port);
+}
+
+action faas_port_table_miss() {
+    modify_field(meta.port_table_miss_flag, 1);
+}
+
+table faas_port_table {
+    reads {
+        ig_intr_md.ingress_port : exact;
+    }
+    actions {
+        faas_port_table_hit;
+        faas_port_table_miss;
+    }
+    default_action : faas_port_table_miss();
+    size : PORT_TABLE_SIZE;
 }
 
 action faas_conn_table_hit(switch_port, dest_mac) {
@@ -266,7 +290,11 @@ table sys_init_metadata_apply {
 control ingress {
 	apply(sys_init_metadata_apply);
 	apply(faas_init_metadata_apply);
-	apply(faas_conn_table);
+
+	apply(faas_port_table);
+	if (meta.port_table_miss_flag == 1) {
+		apply(faas_conn_table);
+	}
 
     if (meta.controller_flag == 1) {
     	apply(sys_send_to_controller_apply);
