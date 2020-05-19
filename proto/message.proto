@@ -152,3 +152,14 @@ message Stats {
     int32 arrival_rate = 1;
     int32 service_time = 2;
 }
+
+message BypassArg {
+    uint32 cycles_per_batch = 1;
+    uint32 cycles_per_packet = 2;
+    uint32 cycles_per_byte = 3;
+}
+
+message SetBatchArg {
+    uint32 batch_size = 1; // The maximum "burst" of packets (ie, the maximum batch size) to proceed in each round.
+    uint32 batch_number = 2; // How many rounds (batches) to go (proceed) before yielding CPU. Must be (2^n).
+}

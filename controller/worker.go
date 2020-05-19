@@ -345,3 +345,25 @@ func (w *Worker) Close() error {
 	fmt.Printf("worker[%s] is cleaned up\n", w.name)
 	return nil
 }
+
+func (w *Worker) setCycles(port int, cyclesPerBatch int, cyclesPerPacket int, cyclesPerByte int) error {
+	w.sgMutex.Lock()
+	defer w.sgMutex.Unlock()
+
+	ins := w.insStartupPool.get(port)
+	if ins == nil || ins.sg == nil {
+		return errors.New(fmt.Sprintf("Cannot find instance with port %d on %s", port, w.name))
+	}
+	return ins.setCycles(cyclesPerBatch, cyclesPerPacket, cyclesPerByte)
+}
+
+func (w *Worker) setBatch(port int, batchSize int, batchNumber int) (string, error) {
+	w.sgMutex.Lock()
+	defer w.sgMutex.Unlock()
+
+	ins := w.insStartupPool.get(port)
+	if ins == nil || ins.sg == nil {
+		return "", errors.New(fmt.Sprintf("Cannot find instance with port %d on %s", port, w.name))
+	}
+	return ins.setBatch(batchSize, batchNumber)
+}

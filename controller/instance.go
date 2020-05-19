@@ -23,38 +23,74 @@ const kUninitializedTid int = -1
 // an unique ID for the instance.
 // |address| is the "ip:port" address of the gRPC server.
 // |tid| is the thread ID of the instance.
+// |cycle| is the average per batch cycle.
+// |incQueueLength| is the queue length of incQueue.
+// |pktRateKpps| describes the observed traffic.
 // |podName| is the Pod's deployment name in Kubernetes.
 // |groupID| is the SGroup's ID.
 
 type Instance struct {
-	funcType string
-	isNF     bool
-	port     int
-	address  string
-	podName  string
-	sg       *SGroup
-	tid      int
+	funcType       string
+	isNF           bool
+	port           int
+	address        string
+	podName        string
+	sg             *SGroup
+	tid            int
+	cycle          int
+	incQueueLength int
+	pktRateKpps    int
 	grpc.InstanceGRPCHandler
 	cond *sync.Cond
 }
 
 func newInstance(funcType string, hostIp string, port int, podName string) *Instance {
 	instance := Instance{
-		funcType: funcType,
-		isNF:     (funcType != "prim" && funcType != "sched"),
-		port:     port,
-		address:  hostIp + ":" + strconv.Itoa(port),
-		podName:  podName,
-		tid:      kUninitializedTid,
-		cond:     sync.NewCond(&sync.Mutex{}),
+		funcType:       funcType,
+		isNF:           (funcType != "prim" && funcType != "sched"),
+		port:           port,
+		address:        hostIp + ":" + strconv.Itoa(port),
+		podName:        podName,
+		tid:            kUninitializedTid,
+		cycle:          0,
+		incQueueLength: 0,
+		pktRateKpps:    0,
+		cond:           sync.NewCond(&sync.Mutex{}),
 	}
 	return &instance
 }
 
 func (ins *Instance) String() string {
-	return fmt.Sprintf("%s[port=%d, tid=%d]", ins.funcType, ins.port, ins.tid)
+	return fmt.Sprintf("%s[port=%d, cycles=%d, qlen=%d, pps=%d]", ins.funcType, ins.port, ins.cycle, ins.incQueueLength, ins.pktRateKpps)
 }
 
 func (ins *Instance) ID() int {
 	return ins.port
+}
+
+func (ins *Instance) setCycles(cyclesPerBatch int, cyclesPerPacket int, cyclesPerByte int) error {
+	if !ins.InstanceGRPCHandler.IsConnEstablished() {
+		if err := ins.InstanceGRPCHandler.EstablishConnection(ins.address); err != nil {
+			return err
+		}
+	}
+	_, err := ins.SetCycles(cyclesPerBatch, cyclesPerPacket, cyclesPerByte)
+	return err
+}
+
+func (ins *Instance) setBatch(batchSize int, batchNumber int) (string, error) {
+	if !ins.InstanceGRPCHandler.IsConnEstablished() {
+		if err := ins.InstanceGRPCHandler.EstablishConnection(ins.address); err != nil {
+			return "", err
+		}
+	}
+	response, err := ins.SetBatch(batchSize, batchNumber)
+	msg := response.GetError().GetErrmsg()
+	return msg, err
+}
+
+func (ins *Instance) updateTrafficInfo(qlen int, kpps int, cycle int) {
+	ins.incQueueLength = qlen
+	ins.pktRateKpps = kpps
+	ins.cycle = cycle
 }
