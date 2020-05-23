@@ -32,4 +32,9 @@ service InstanceControl {
 
   // Collect statistics of the queue in the port
   rpc GetPortQueueStats (EmptyArg) returns (GetPortQueueStatsResponse) {};
+
+  // Set cycle parameters for a Bypass module
+  rpc SetCycles (BypassArg) returns (EmptyArg) {};
+  // Set batch size and batch number for a NF
+  rpc SetBatchSize (SetBatchArg) returns (CommandResponse) {}
 }

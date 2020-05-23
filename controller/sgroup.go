@@ -255,19 +255,21 @@ func (sg *SGroup) IsSched() bool {
 // TODO (Jianfeng): trigger extra scaling operations.
 // |sg| turns active if it has packets in its NIC queue, and turns
 // inactive if it has zero traffic rate and zero queue length.
-func (sg *SGroup) UpdateTrafficInfo(qlen int, kpps int) {
+func (sg *SGroup) updateTrafficInfo() {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
-	sg.incQueueLength = qlen
-	sg.pktRateKpps = kpps
+	if len(sg.instances) > 0 {
+		sg.incQueueLength = sg.instances[0].getQlen()
+		sg.pktRateKpps = sg.instances[0].getPktRate()
+	}
 
 	if sg.isActive {
-		if qlen == 0 && kpps == 0 {
+		if sg.incQueueLength == 0 && sg.pktRateKpps == 0 {
 			sg.isActive = false
 		}
 	} else {
-		if qlen > 0 {
+		if sg.incQueueLength > 0 {
 			sg.isActive = true
 		}
 	}

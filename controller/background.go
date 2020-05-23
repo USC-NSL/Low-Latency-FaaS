@@ -117,7 +117,8 @@ func (w *Worker) createSGroup(sg *SGroup, dag *DAG) {
 		isEgress := "false"
 		if i == 0 {
 			isIngress = "true"
-		} else if i == len(dag.chains)-1 {
+		}
+		if i == len(dag.chains)-1 {
 			isEgress = "true"
 		}
 		vPortIncIdx, vPortOutIdx := i, i+1
