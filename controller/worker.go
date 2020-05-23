@@ -346,7 +346,7 @@ func (w *Worker) Close() error {
 	return nil
 }
 
-func (w *Worker) setCycles(port int, cyclesPerBatch int, cyclesPerPacket int, cyclesPerByte int) error {
+func (w *Worker) setCycles(port int, cyclesPerPacket int) error {
 	w.sgMutex.Lock()
 	defer w.sgMutex.Unlock()
 
@@ -354,7 +354,7 @@ func (w *Worker) setCycles(port int, cyclesPerBatch int, cyclesPerPacket int, cy
 	if ins == nil || ins.sg == nil {
 		return errors.New(fmt.Sprintf("Cannot find instance with port %d on %s", port, w.name))
 	}
-	return ins.setCycles(cyclesPerBatch, cyclesPerPacket, cyclesPerByte)
+	return ins.setCycles(cyclesPerPacket)
 }
 
 func (w *Worker) setBatch(port int, batchSize int, batchNumber int) (string, error) {

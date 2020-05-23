@@ -147,12 +147,8 @@ func (e *Executor) Execute(s string) {
 	} else if words[0] == "cycle" && len(words) >= 4 {
 		nodeName := words[1]
 		port, _ := strconv.Atoi(words[2])
-		cyclesPerBatch, _ := strconv.Atoi(words[3])
-		cyclesPerPacket := 0
-		if len(words) >= 5 {
-			cyclesPerPacket, _ = strconv.Atoi(words[4])
-		}
-		if err := e.FaaSController.SetCycles(nodeName, port, cyclesPerBatch, cyclesPerPacket, 0); err != nil {
+		cyclesPerPacket, _ := strconv.Atoi(words[3])
+		if err := e.FaaSController.SetCycles(nodeName, port, cyclesPerPacket); err != nil {
 			fmt.Printf("Failed to set cycles on instance (port=%d) of worker %s: %s!\n", port, nodeName, err.Error())
 		}
 	} else if words[0] == "batch" && len(words) >= 5 {

@@ -49,7 +49,7 @@ func (handler *InstanceGRPCHandler) GetPortQueueStatsForInstance(address string)
 }
 
 // Send gRPC request to update cycles for Bypass Module.
-func (handler *InstanceGRPCHandler) SetCycles(cyclesPerBatch int, cyclesPerPacket int, cyclesPerByte int) (*pb.EmptyArg, error) {
+func (handler *InstanceGRPCHandler) SetCycles(cyclesPerPacket int) (*pb.EmptyArg, error) {
 	if handler.grpcConn == nil {
 		return nil, errors.New("connection does not exist")
 	}
@@ -60,9 +60,9 @@ func (handler *InstanceGRPCHandler) SetCycles(cyclesPerBatch int, cyclesPerPacke
 
 	client := pb.NewInstanceControlClient(handler.grpcConn)
 	response, err := client.SetCycles(ctx, &pb.BypassArg{
-		CyclesPerBatch:  uint32(cyclesPerBatch),
+		CyclesPerBatch:  0,
 		CyclesPerPacket: uint32(cyclesPerPacket),
-		CyclesPerByte:   uint32(cyclesPerByte),
+		CyclesPerByte:   0,
 	})
 	return response, err
 }

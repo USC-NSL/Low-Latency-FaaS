@@ -30,6 +30,7 @@ const kUninitializedTid int = -1
 // |groupID| is the SGroup's ID.
 
 type Instance struct {
+	grpc.InstanceGRPCHandler
 	funcType       string
 	isNF           bool
 	port           int
@@ -40,8 +41,8 @@ type Instance struct {
 	cycle          int
 	incQueueLength int
 	pktRateKpps    int
-	grpc.InstanceGRPCHandler
-	cond *sync.Cond
+	cond           *sync.Cond
+	mutex          sync.Mutex
 }
 
 func newInstance(funcType string, hostIp string, port int, podName string) *Instance {
@@ -61,20 +62,26 @@ func newInstance(funcType string, hostIp string, port int, podName string) *Inst
 }
 
 func (ins *Instance) String() string {
+	ins.mutex.Lock()
+	defer ins.mutex.Unlock()
+
 	return fmt.Sprintf("%s[port=%d, cycles=%d, qlen=%d, pps=%d]", ins.funcType, ins.port, ins.cycle, ins.incQueueLength, ins.pktRateKpps)
 }
 
 func (ins *Instance) ID() int {
+	ins.mutex.Lock()
+	defer ins.mutex.Unlock()
+
 	return ins.port
 }
 
-func (ins *Instance) setCycles(cyclesPerBatch int, cyclesPerPacket int, cyclesPerByte int) error {
+func (ins *Instance) setCycles(cyclesPerPacket int) error {
 	if !ins.InstanceGRPCHandler.IsConnEstablished() {
 		if err := ins.InstanceGRPCHandler.EstablishConnection(ins.address); err != nil {
 			return err
 		}
 	}
-	_, err := ins.SetCycles(cyclesPerBatch, cyclesPerPacket, cyclesPerByte)
+	_, err := ins.SetCycles(cyclesPerPacket)
 	return err
 }
 
@@ -90,7 +97,31 @@ func (ins *Instance) setBatch(batchSize int, batchNumber int) (string, error) {
 }
 
 func (ins *Instance) updateTrafficInfo(qlen int, kpps int, cycle int) {
+	ins.mutex.Lock()
+	defer ins.mutex.Unlock()
+
 	ins.incQueueLength = qlen
 	ins.pktRateKpps = kpps
 	ins.cycle = cycle
+}
+
+func (ins *Instance) getQlen() int {
+	ins.mutex.Lock()
+	defer ins.mutex.Unlock()
+
+	return ins.incQueueLength
+}
+
+func (ins *Instance) getPktRate() int {
+	ins.mutex.Lock()
+	defer ins.mutex.Unlock()
+
+	return ins.pktRateKpps
+}
+
+func (ins *Instance) getCycle() int {
+	ins.mutex.Lock()
+	defer ins.mutex.Unlock()
+
+	return ins.cycle
 }

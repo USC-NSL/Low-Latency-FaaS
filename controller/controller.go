@@ -258,12 +258,12 @@ func (c *FaaSController) InstanceUpdateStats(nodeName string, port int, qlen int
 }
 
 // Set runtime cycles for instance on worker |nodeName| with port |port|.
-func (c *FaaSController) SetCycles(nodeName string, port int, cyclesPerBatch int, cyclesPerPacket int, cyclesPerByte int) error {
+func (c *FaaSController) SetCycles(nodeName string, port int, cyclesPerPacket int) error {
 	w, exists := c.workers[nodeName]
 	if !exists {
 		return fmt.Errorf("Worker[%s] does not exist", nodeName)
 	}
-	return w.setCycles(port, cyclesPerBatch, cyclesPerPacket, cyclesPerByte)
+	return w.setCycles(port, cyclesPerPacket)
 }
 
 // Set batch size and batch number for instance on worker |nodeName| with port |port|.

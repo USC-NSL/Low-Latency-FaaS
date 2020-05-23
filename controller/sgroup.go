@@ -260,8 +260,8 @@ func (sg *SGroup) updateTrafficInfo() {
 	defer sg.mutex.Unlock()
 
 	if len(sg.instances) > 0 {
-		sg.incQueueLength = sg.instances[0].incQueueLength
-		sg.pktRateKpps = sg.instances[0].pktRateKpps
+		sg.incQueueLength = sg.instances[0].getQlen()
+		sg.pktRateKpps = sg.instances[0].getPktRate()
 	}
 
 	if sg.isActive {
