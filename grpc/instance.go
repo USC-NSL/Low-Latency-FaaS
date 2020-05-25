@@ -47,3 +47,41 @@ func (handler *InstanceGRPCHandler) GetPortQueueStatsForInstance(address string)
 	response, err := client.GetPortQueueStats(ctx, &pb.EmptyArg{})
 	return response, err
 }
+
+// Send gRPC request to update cycles for Bypass Module.
+func (handler *InstanceGRPCHandler) SetCycles(cyclesPerPacket int) (*pb.EmptyArg, error) {
+	if handler.grpcConn == nil {
+		return nil, errors.New("connection does not exist")
+	}
+
+	// Add context for gRPC request to set timeout to one second
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	client := pb.NewInstanceControlClient(handler.grpcConn)
+	response, err := client.SetCycles(ctx, &pb.BypassArg{
+		CyclesPerBatch:  0,
+		CyclesPerPacket: uint32(cyclesPerPacket),
+		CyclesPerByte:   0,
+	})
+	return response, err
+}
+
+// Set batch size and batch number for NF.
+// See message.proto for more information.
+func (handler *InstanceGRPCHandler) SetBatch(batchSize int, batchNumber int) (*pb.CommandResponse, error) {
+	if handler.grpcConn == nil {
+		return nil, errors.New("connection does not exist")
+	}
+
+	// Add context for gRPC request to set timeout to one second
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	client := pb.NewInstanceControlClient(handler.grpcConn)
+	response, err := client.SetBatchSize(ctx, &pb.SetBatchArg{
+		BatchSize:   uint32(batchSize),
+		BatchNumber: uint32(batchNumber),
+	})
+	return response, err
+}

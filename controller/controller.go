@@ -252,6 +252,26 @@ func (c *FaaSController) InstanceUpdateStats(nodeName string, port int, qlen int
 		return fmt.Errorf("SGroup not found")
 	}
 
-	ins.sg.UpdateTrafficInfo(qlen, kpps)
+	ins.updateTrafficInfo(qlen, kpps, cycle)
+	ins.sg.updateTrafficInfo()
 	return nil
+}
+
+// Set runtime cycles for instance on worker |nodeName| with port |port|.
+func (c *FaaSController) SetCycles(nodeName string, port int, cyclesPerPacket int) error {
+	w, exists := c.workers[nodeName]
+	if !exists {
+		return fmt.Errorf("Worker[%s] does not exist", nodeName)
+	}
+	return w.setCycles(port, cyclesPerPacket)
+}
+
+// Set batch size and batch number for instance on worker |nodeName| with port |port|.
+// See message.proto for more information.
+func (c *FaaSController) SetBatch(nodeName string, port int, batchSize int, batchNumber int) (string, error) {
+	w, exists := c.workers[nodeName]
+	if !exists {
+		return "", fmt.Errorf("Worker[%s] does not exist", nodeName)
+	}
+	return w.setBatch(port, batchSize, batchNumber)
 }
