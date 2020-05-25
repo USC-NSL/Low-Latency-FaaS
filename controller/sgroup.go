@@ -44,6 +44,7 @@ type SGroup struct {
 	isSched          bool
 	instances        []*Instance
 	tids             []int32
+	sumCycles        int
 	incQueueLength   int
 	incQueueCapacity int
 	outQueueLength   int
@@ -101,6 +102,7 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 		isSched:          false,
 		instances:        make([]*Instance, 0),
 		tids:             make([]int32, 0),
+		sumCycles:        0,
 		incQueueLength:   0,
 		incQueueCapacity: NIC_RX_QUEUE_LENGTH,
 		outQueueLength:   0,
@@ -143,7 +145,7 @@ func (sg *SGroup) String() string {
 	info += fmt.Sprintf("]\n")
 	info += fmt.Sprintf("    Info: id=%d, pcie=%s, core=%d\n", sg.groupID, PCIeMappings[sg.pcieIdx], sg.coreID)
 	info += fmt.Sprintf("    Status: rdy=%v, active=%v, sched=%v\n", sg.isReady, sg.isActive, sg.isSched)
-	info += fmt.Sprintf("    Performance: q=%d, qload=%d, pps=%d kpps, pload=%d", sg.incQueueLength, 100*sg.incQueueLength/sg.incQueueCapacity, sg.pktRateKpps, 100*sg.pktRateKpps/sg.maxRateKpps)
+	info += fmt.Sprintf("    Performance: cycles=%d, q=%d, qload=%d, pps=%d kpps, pload=%d", sg.sumCycles, sg.incQueueLength, 100*sg.incQueueLength/sg.incQueueCapacity, sg.pktRateKpps, 100*sg.pktRateKpps/sg.maxRateKpps)
 
 	return info
 }
@@ -257,6 +259,11 @@ func (sg *SGroup) updateTrafficInfo() {
 	if len(sg.instances) > 0 {
 		sg.incQueueLength = sg.instances[0].getQlen()
 		sg.pktRateKpps = sg.instances[0].getPktRate()
+
+		sg.sumCycles = 0
+		for _, ins := range sg.instances {
+			sg.sumCycles += ins.getCycle()
+		}
 	}
 
 	if sg.isActive {
@@ -268,6 +275,13 @@ func (sg *SGroup) updateTrafficInfo() {
 			sg.isActive = true
 		}
 	}
+}
+
+func (sg *SGroup) GetCycles() int {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	return sg.sumCycles
 }
 
 func (sg *SGroup) GetQlen() int {

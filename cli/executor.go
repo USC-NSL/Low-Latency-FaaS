@@ -38,7 +38,7 @@ func NewExecutor(FaaSController *controller.FaaSController) *Executor {
 // 8. Simulate a flow coming to the system:
 //    - flow |srcIp| |srcPort| |dstIp| |dstPort| |protocol|
 // 9. Set cycle parameters for a Bypass module:
-//    - cycle |nodeName| |port| |cyclePerBatch| |cyclePerPacket|
+//    - cycle |nodeName| |port| |cyclePerPacket|
 // 10. Set batch size and number for a NF:
 //    - batch |nodeName| |port| |batchSize| |batchNumber|
 //---------------------------------------------------------
@@ -141,7 +141,7 @@ func (e *Executor) Execute(s string) {
 	} else if words[0] == "exp" {
 		user := "a"
 		nf1 := e.FaaSController.AddNF(user, "bypass")
-		nf2 := e.FaaSController.AddNF(user, "none")
+		nf2 := e.FaaSController.AddNF(user, "bypass")
 
 		e.FaaSController.ConnectNFs(user, nf1, nf2)
 		e.FaaSController.ActivateDAG(user)
