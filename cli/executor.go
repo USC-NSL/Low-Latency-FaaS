@@ -120,13 +120,13 @@ func (e *Executor) Execute(s string) {
 	} else if words[0] == "deploy" && len(words) >= 3 {
 		user := words[1]
 		funcType := words[2]
-		if err := e.FaaSController.AddNF(user, funcType); err != nil {
-			fmt.Printf("Failed to add SGroup [%s]: %s.\n", funcType, err.Error())
-		}
+		nfID := e.FaaSController.AddNF(user, funcType)
+
+		fmt.Printf("User %s: add NF [%s], ID=%d.\n", user, funcType, nfID)
 	} else if words[0] == "connect" && len(words) >= 4 {
 		user := words[1]
-		up := words[2]
-		down := words[3]
+		up, _ := strconv.Atoi(words[2])
+		down, _ := strconv.Atoi(words[3])
 		if err := e.FaaSController.ConnectNFs(user, up, down); err != nil {
 			fmt.Println(err)
 		}
@@ -140,9 +140,10 @@ func (e *Executor) Execute(s string) {
 		e.FaaSController.ActivateDAG(user)
 	} else if words[0] == "exp" {
 		user := "a"
-		e.FaaSController.AddNF(user, "bypass")
-		e.FaaSController.AddNF(user, "none")
-		e.FaaSController.ConnectNFs(user, "bypass", "none")
+		nf1 := e.FaaSController.AddNF(user, "bypass")
+		nf2 := e.FaaSController.AddNF(user, "none")
+
+		e.FaaSController.ConnectNFs(user, nf1, nf2)
 		e.FaaSController.ActivateDAG(user)
 	} else if words[0] == "cycle" && len(words) >= 4 {
 		nodeName := words[1]

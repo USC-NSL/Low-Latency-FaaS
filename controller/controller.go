@@ -97,10 +97,10 @@ func (c *FaaSController) GetWorkerInfoByName(nodeName string) string {
 	return ""
 }
 
-// Adds an NF |funcType| to a |user|'s DAG. If |user| does not
-// exist, first creates a new |user| in |FaaSController|.
-// |user| is a string that represents the user's ID.
-func (c *FaaSController) AddNF(user string, funcType string) error {
+// Adds an NF of |funcType| to a |user|'s DAG. Returns an integral
+// handler of this NF. |user| represents the user's ID. If |user|
+// does not exist, creates a new |user| in |FaaSController|.
+func (c *FaaSController) AddNF(user string, funcType string) int {
 	if _, exists := c.dags[user]; !exists {
 		c.dags[user] = newDAG()
 	}
@@ -110,7 +110,7 @@ func (c *FaaSController) AddNF(user string, funcType string) error {
 
 // Connects two NFs |upNF| -> |downNF| to a |user|'s DAG.
 // |user| is a string that represents the user's ID.
-func (c *FaaSController) ConnectNFs(user string, upNF string, downNF string) error {
+func (c *FaaSController) ConnectNFs(user string, upNF int, downNF int) error {
 	if _, exists := c.dags[user]; !exists {
 		return errors.New(fmt.Sprintf("User [%s] has no NFs.", user))
 	}

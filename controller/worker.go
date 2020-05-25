@@ -181,8 +181,8 @@ func (w *Worker) destroyInstance(ins *Instance) error {
 }
 
 func (w *Worker) createAllFreeSGroups() {
-	//for i := 0; i < 7; i++ {
-	for i := 0; i < w.pciePool.Size(); i++ {
+	for i := 0; i < 3; i++ {
+		//for i := 0; i < w.pciePool.Size(); i++ {
 		w.op <- FREE_SGROUP
 	}
 }

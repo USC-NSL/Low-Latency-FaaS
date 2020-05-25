@@ -56,7 +56,9 @@ func (g *DAG) String() string {
 	return strings.Join(dag, " ")
 }
 
-func (g *DAG) addNF(funcType string) error {
+// This function adds a logical NF of |funcType| to DAG |g|.
+// Returns an integral handler of this added NF.
+func (g *DAG) addNF(funcType string) int {
 	id := len(g.NFMap)
 	g.NFMap[id] = &NF{
 		id:       id,
@@ -64,22 +66,15 @@ func (g *DAG) addNF(funcType string) error {
 		nextNFs:  make([]int, 0),
 		prevNFs:  make([]int, 0),
 	}
-	return nil
+	return id
 }
 
-func (g *DAG) connectNFs(up string, down string) error {
-	upID, downID := -1, -1
-	for id, nf := range g.NFMap {
-		if nf.funcType == up {
-			upID = id
-		} else if nf.funcType == down {
-			downID = id
-		}
+func (g *DAG) connectNFs(upID int, downID int) error {
+	if upID < 0 || upID > len(g.NFMap) {
+		return fmt.Errorf("Invalid NF |upID| (expect: [0, %d], input: %d)", len(g.NFMap), upID)
 	}
-
-	if upID == -1 || downID == -1 {
-		return errors.New(fmt.Sprintf(
-			"Error: failed to connect [%s] -> [%s]", up, down))
+	if downID < 0 || downID > len(g.NFMap) {
+		return fmt.Errorf("Invalid NF |downID| (expect: [0, %d], input: %d)", len(g.NFMap), downID)
 	}
 
 	g.NFMap[upID].nextNFs = append(g.NFMap[upID].nextNFs, downID)

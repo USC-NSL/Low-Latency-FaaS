@@ -140,9 +140,10 @@ func (sg *SGroup) String() string {
 			info += fmt.Sprintf(" -> %s", ins)
 		}
 	}
-	info += fmt.Sprintf("] info: id=%d, pcie=%s, core=%d\n", sg.groupID, PCIeMappings[sg.pcieIdx], sg.coreID)
-	info += fmt.Sprintf("    Status: rdy=%v, active=%v, sched=%v;   ", sg.isReady, sg.isActive, sg.isSched)
-	info += fmt.Sprintf("Performance: q=%d, qload=%d, pps=%d kpps, pload=%d)", sg.incQueueLength, 100*sg.incQueueLength/sg.incQueueCapacity, sg.pktRateKpps, 100*sg.pktRateKpps/sg.maxRateKpps)
+	info += fmt.Sprintf("]\n")
+	info += fmt.Sprintf("    Info: id=%d, pcie=%s, core=%d\n", sg.groupID, PCIeMappings[sg.pcieIdx], sg.coreID)
+	info += fmt.Sprintf("    Status: rdy=%v, active=%v, sched=%v\n", sg.isReady, sg.isActive, sg.isSched)
+	info += fmt.Sprintf("    Performance: q=%d, qload=%d, pps=%d kpps, pload=%d", sg.incQueueLength, 100*sg.incQueueLength/sg.incQueueCapacity, sg.pktRateKpps, 100*sg.pktRateKpps/sg.maxRateKpps)
 
 	return info
 }
@@ -210,13 +211,7 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 		} else if status.GetCode() != 0 {
 			glog.Errorf("AttachChain gRPC request errmsg: %s", status.GetErrmsg())
 		}
-		/*
-			if status, err := w.DetachChain(sg.tids, coreID); err != nil {
-				glog.Errorf("Failed to detach SGroup[%d] on core #1. %s", sg.ID(), err)
-			} else if status.GetCode() != 0 {
-				glog.Errorf("DetachChain gRPC request errmsg: %s", status.GetErrmsg())
-			}
-		*/
+
 		core, exists := w.cores[coreID]
 		if !exists {
 			glog.Errorf("Core[%d] not found", coreID)
