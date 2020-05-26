@@ -13,6 +13,7 @@ const (
 	NIC_TX_QUEUE_LENGTH = 4096
 	STARTUP_CORE_ID     = 1
 	INVALID_CORE_ID     = -1
+	CONTEXT_SWITCH_CYCLE_COST_PP = 5100
 )
 
 // The abstraction of minimal scheduling unit at each CPU core.
@@ -195,12 +196,24 @@ func (sg *SGroup) adjustBatchCount() {
 	}
 	nfCount := len(sg.instances)
 	cnt := 5100 * float64(nfCount+1) / float64(1/0.95-1) / float64(sumCycleCost) / float64(sg.batchSize)
-	sg.batchCount = int(math.Ceil(cnt))
+	//sg.batchCount = int(math.Ceil(cnt))
+	sg.batchCount = int(math.Pow(2, math.Ceil(math.Log2(cnt))))
 
 	for _, ins := range sg.instances {
-		_, err := ins.setBatch(sg.batchSize, sg.batchCount)
-		if err != nil {
-			glog.Errorf("Failed to set batch for instance %d. %v", ins.funcType, err)
+		for try := 0; try < 5; try += 1 {
+			if msg, err := ins.setBatch(sg.batchSize, sg.batchCount); err != nil {
+				glog.Errorf("Failed to set batch for Instance %s. %v", ins.funcType, err)
+			} else if msg != "" {
+				glog.Errorf("Response: " + msg)
+			} else {
+				break
+			}
+		}
+
+		if ins.funcType == "bypass" {
+			if err := ins.setCycles(ins.profiledCycle); err != nil {
+				glog.Errorf("Failed to set batch for Instance %s. %v", ins.funcType, err)
+			}
 		}
 	}
 }
@@ -227,7 +240,7 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 		}
 
 		// Sends gRPC request to inform the scheduler.
-		glog.Infof("SGroup[%d] is ready. Notify the scheduler", sg.ID())
+		glog.Infof("SGroup %d is ready. Notify the scheduler", sg.ID())
 
 		w := sg.worker
 
