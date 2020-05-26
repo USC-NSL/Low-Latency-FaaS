@@ -98,7 +98,7 @@ func (ins *Instance) setBatch(batchSize int, batchNumber int) (string, error) {
 	return msg, err
 }
 
-func (ins *Instance) updateTrafficInfo(qlen int, kpps int, cycle int) {
+func (ins *Instance) UpdateTrafficInfo(qlen int, kpps int, cycle int) {
 	ins.mutex.Lock()
 	defer ins.mutex.Unlock()
 

@@ -9,10 +9,10 @@ import (
 )
 
 const (
-	NIC_RX_QUEUE_LENGTH = 4096
-	NIC_TX_QUEUE_LENGTH = 4096
-	STARTUP_CORE_ID     = 1
-	INVALID_CORE_ID     = -1
+	NIC_RX_QUEUE_LENGTH          = 4096
+	NIC_TX_QUEUE_LENGTH          = 4096
+	STARTUP_CORE_ID              = 1
+	INVALID_CORE_ID              = -1
 	CONTEXT_SWITCH_CYCLE_COST_PP = 5100
 )
 
@@ -26,6 +26,10 @@ const (
 // packets are coming into the SGroup's NIC queue.
 // |instances| are NF instances within the scheduling group.
 // |tids| is an array of all NF thread's IDs.
+// |sumCycles| is the sum of all instances' cycle costs.
+// |batchSize| is the batch size when executing NFs.
+// |batchCount| is the target number of batches in one execution
+// for all instances.
 // |QueueLength, QueueCapacity| are the NIC queue information.
 // |pktRateKpps| describes the observed traffic.
 // |worker| is the worker node that the sGroup attached to. Set -1 when not attached.
@@ -140,7 +144,7 @@ func (sg *SGroup) String() string {
 	defer sg.mutex.Unlock()
 
 	qLoad := 100 * sg.incQueueLength / sg.incQueueCapacity
-	pLoad := (sg.pktRateKpps * sg.sumCycles) / (1700 * 10)
+	pLoad := 100 * sg.pktRateKpps / sg.maxRateKpps
 
 	info := "["
 	for i, ins := range sg.instances {
@@ -153,7 +157,7 @@ func (sg *SGroup) String() string {
 	info += fmt.Sprintf("]\n")
 	info += fmt.Sprintf("    Info: id=%d, pcie=%s, core=%d\n", sg.groupID, PCIeMappings[sg.pcieIdx], sg.coreID)
 	info += fmt.Sprintf("    Status: rdy=%v, active=%v, sched=%v\n", sg.isReady, sg.isActive, sg.isSched)
-	info += fmt.Sprintf("    Performance: cycles=%d, batch=(size=%d, cnt=%d), q=%d, qload=%d, pps=%d kpps, pload=%d", sg.sumCycles, sg.batchSize, sg.batchCount, sg.incQueueLength, qLoad, sg.pktRateKpps, pLoad)
+	info += fmt.Sprintf("    Performance: cycles=%d, batch=(size=%d, cnt=%d), (q=%d, qload=%d), (pps=%d kpps, pload=%d)", sg.sumCycles, sg.batchSize, sg.batchCount, sg.incQueueLength, qLoad, sg.pktRateKpps, pLoad)
 
 	return info
 }
@@ -178,6 +182,7 @@ func (sg *SGroup) Reset() {
 	sg.tids = nil
 }
 
+// Appends a new Instance |ins| to the end of this SGroup |sg|.
 func (sg *SGroup) AppendInstance(ins *Instance) {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
@@ -196,11 +201,11 @@ func (sg *SGroup) adjustBatchCount() {
 	}
 	nfCount := len(sg.instances)
 	cnt := 5100 * float64(nfCount+1) / float64(1/0.95-1) / float64(sumCycleCost) / float64(sg.batchSize)
-	//sg.batchCount = int(math.Ceil(cnt))
-	sg.batchCount = int(math.Pow(2, math.Ceil(math.Log2(cnt))))
+	sg.batchCount = int(math.Ceil(cnt))
+	//sg.batchCount = int(math.Pow(2, math.Ceil(math.Log2(cnt))))
 
 	for _, ins := range sg.instances {
-		for try := 0; try < 5; try += 1 {
+		for try := 0; try < 3; try += 1 {
 			if msg, err := ins.setBatch(sg.batchSize, sg.batchCount); err != nil {
 				glog.Errorf("Failed to set batch for Instance %s. %v", ins.funcType, err)
 			} else if msg != "" {
@@ -211,6 +216,7 @@ func (sg *SGroup) adjustBatchCount() {
 		}
 
 		if ins.funcType == "bypass" {
+			// All connections have been set up.
 			if err := ins.setCycles(ins.profiledCycle); err != nil {
 				glog.Errorf("Failed to set batch for Instance %s. %v", ins.funcType, err)
 			}
@@ -292,9 +298,13 @@ func (sg *SGroup) IsSched() bool {
 }
 
 // TODO (Jianfeng): trigger extra scaling operations.
-// |sg| turns active if it has packets in its NIC queue, and turns
-// inactive if it has zero traffic rate and zero queue length.
-func (sg *SGroup) updateTrafficInfo() {
+// This function is called to update traffic-related parameters.
+// * Updates the packet rate and queue length for SGroup |sg|.
+// * Calculates the sum of cycle costs.
+// * Estimates the max packet rate with the context switching overhead.
+// * Marks |sg| active if there are packets in its NIC queue, and
+// marks inactive if it has zero traffic rate and zero queue length.
+func (sg *SGroup) UpdateTrafficInfo() {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
@@ -353,14 +363,18 @@ func (sg *SGroup) GetPktRate() int {
 	return sg.pktRateKpps
 }
 
+// Returns the current packet rate devided by the estimated max
+// packet rate (in percentage value).
+// Note: |sg.maxRateKpps| has considered the context switching overhead.
 func (sg *SGroup) GetPktLoad() int {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
-	return 100 * sg.pktRateKpps / sg.maxRateKpps
+	// The old packet load: (no context switching overhead)
 	// CPU load = 100 * (packetRate * sumCycles) / (CPU Frequency)
 	// i.e. 100 * (sg.pktRateKpps * 1000 * sg.sumCycles) / (1700 * 1000,000)
-	//return (sg.pktRateKpps * sg.sumCycles) / 1700 * 10
+	// return (sg.pktRateKpps * sg.sumCycles) / 1700 * 10
+	return 100 * sg.pktRateKpps / sg.maxRateKpps
 }
 
 func (sg *SGroup) SetCoreID(coreID int) {

@@ -266,8 +266,8 @@ func (c *FaaSController) InstanceUpdateStats(nodeName string, port int, qlen int
 		return fmt.Errorf("SGroup not found")
 	}
 
-	ins.updateTrafficInfo(qlen, kpps, cycle)
-	ins.sg.updateTrafficInfo()
+	ins.UpdateTrafficInfo(qlen, kpps, cycle)
+	ins.sg.UpdateTrafficInfo()
 	return nil
 }
 
