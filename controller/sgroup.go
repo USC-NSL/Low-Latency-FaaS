@@ -2,7 +2,7 @@ package controller
 
 import (
 	"fmt"
-	//"math"
+	"math"
 	"sync"
 
 	glog "github.com/golang/glog"
@@ -152,7 +152,7 @@ func (sg *SGroup) String() string {
 	info += fmt.Sprintf("]\n")
 	info += fmt.Sprintf("    Info: id=%d, pcie=%s, core=%d\n", sg.groupID, PCIeMappings[sg.pcieIdx], sg.coreID)
 	info += fmt.Sprintf("    Status: rdy=%v, active=%v, sched=%v\n", sg.isReady, sg.isActive, sg.isSched)
-	info += fmt.Sprintf("    Performance: cycles=%d, q=%d, qload=%d, pps=%d kpps, pload=%d", sg.sumCycles, sg.incQueueLength, qLoad, sg.pktRateKpps, pLoad)
+	info += fmt.Sprintf("    Performance: cycles=%d, batch=(size=%d, cnt=%d), q=%d, qload=%d, pps=%d kpps, pload=%d", sg.sumCycles, sg.batchSize, sg.batchCount, sg.incQueueLength, qLoad, sg.pktRateKpps, pLoad)
 
 	return info
 }
@@ -185,6 +185,26 @@ func (sg *SGroup) AppendInstance(ins *Instance) {
 	sg.instances = append(sg.instances, ins)
 }
 
+// This function adjusts the batch parameters for all instances
+// in this SGroup. It calculates the appropriate values based on
+// the profiled NF cycle costs.
+func (sg *SGroup) adjustBatchCount() {
+	sumCycleCost := 0
+	for _, ins := range sg.instances {
+		sumCycleCost += ins.profiledCycle
+	}
+	nfCount := len(sg.instances)
+	cnt := 5100 * float64(nfCount+1) / float64(1/0.95-1) / float64(sumCycleCost) / float64(sg.batchSize)
+	sg.batchCount = int(math.Ceil(cnt))
+
+	for _, ins := range sg.instances {
+		_, err := ins.setBatch(sg.batchSize, sg.batchCount)
+		if err != nil {
+			glog.Errorf("Failed to set batch for instance %d. %v", ins.funcType, err)
+		}
+	}
+}
+
 func (sg *SGroup) UpdateTID(port int, tid int) {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
@@ -200,6 +220,8 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 	}
 
 	if ready {
+		sg.adjustBatchCount()
+
 		for _, ins := range sg.instances {
 			sg.tids = append(sg.tids, int32(ins.tid))
 		}
@@ -256,13 +278,6 @@ func (sg *SGroup) IsSched() bool {
 	return sg.isSched
 }
 
-/*
-var cnt float64 = float64(len(sg.instances)+1) * 5100 / float64(1/0.95-1) / float64(sg.sumCycles) / float64(sg.batchSize)
-	if int(math.Ceil(cnt)) != sg.batchCount {
-		fmt.Println("cnt=%d, batch count=%d", cnt, sg.batchCount)
-	}
-*/
-
 // TODO (Jianfeng): trigger extra scaling operations.
 // |sg| turns active if it has packets in its NIC queue, and turns
 // inactive if it has zero traffic rate and zero queue length.
@@ -270,7 +285,8 @@ func (sg *SGroup) updateTrafficInfo() {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
-	if len(sg.instances) > 0 {
+	nfCount := len(sg.instances)
+	if nfCount > 0 {
 		sg.incQueueLength = sg.instances[0].getQlen()
 		sg.pktRateKpps = sg.instances[0].getPktRate()
 
@@ -281,7 +297,7 @@ func (sg *SGroup) updateTrafficInfo() {
 
 		// Calculates the max rate without context switching.
 		if sg.sumCycles > 0 {
-			sg.maxRateKpps = 1700000 / sg.sumCycles
+			sg.maxRateKpps = 1700000 / (sg.sumCycles + 5100*(nfCount+1)/(sg.batchSize*sg.batchCount))
 		}
 	}
 
@@ -328,10 +344,10 @@ func (sg *SGroup) GetPktLoad() int {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
-	//return 100 * sg.pktRateKpps / sg.maxRateKpps
+	return 100 * sg.pktRateKpps / sg.maxRateKpps
 	// CPU load = 100 * (packetRate * sumCycles) / (CPU Frequency)
 	// i.e. 100 * (sg.pktRateKpps * 1000 * sg.sumCycles) / (1700 * 1000,000)
-	return (sg.pktRateKpps * sg.sumCycles) / 1700 * 10
+	//return (sg.pktRateKpps * sg.sumCycles) / 1700 * 10
 }
 
 func (sg *SGroup) SetCoreID(coreID int) {
