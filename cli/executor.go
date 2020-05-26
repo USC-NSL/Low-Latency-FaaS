@@ -140,8 +140,8 @@ func (e *Executor) Execute(s string) {
 		e.FaaSController.ActivateDAG(user)
 	} else if words[0] == "exp" {
 		user := "a"
-		nf1 := e.FaaSController.AddNF(user, "bypass")
-		nf2 := e.FaaSController.AddNF(user, "bypass")
+		nf1 := e.FaaSController.AddDummyNF(user, "acl")
+		nf2 := e.FaaSController.AddDummyNF(user, "filter")
 
 		e.FaaSController.ConnectNFs(user, nf1, nf2)
 		e.FaaSController.ActivateDAG(user)

@@ -2,8 +2,8 @@ package controller
 
 import (
 	"fmt"
+	//"math"
 	"sync"
-	//"time"
 
 	glog "github.com/golang/glog"
 )
@@ -45,6 +45,8 @@ type SGroup struct {
 	instances        []*Instance
 	tids             []int32
 	sumCycles        int
+	batchSize        int
+	batchCount       int
 	incQueueLength   int
 	incQueueCapacity int
 	outQueueLength   int
@@ -103,12 +105,14 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 		instances:        make([]*Instance, 0),
 		tids:             make([]int32, 0),
 		sumCycles:        0,
+		batchSize:        32,
+		batchCount:       1,
 		incQueueLength:   0,
 		incQueueCapacity: NIC_RX_QUEUE_LENGTH,
 		outQueueLength:   0,
 		outQueueCapacity: NIC_TX_QUEUE_LENGTH,
 		pktRateKpps:      0,
-		maxRateKpps:      802,
+		maxRateKpps:      800,
 		worker:           w,
 		coreID:           INVALID_CORE_ID,
 	}
@@ -118,7 +122,7 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 	isEgress := "false"
 	vPortIncIdx := 0
 	vPortOutIdx := 0
-	ins, err := w.createInstance("prim", pcieIdx, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+	ins, err := w.createInstance("prim", 0, pcieIdx, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 	if err != nil {
 		// Fail to create the head instance. Cleanup..
 		glog.Errorf("Failed to create Instance. %v", err)
@@ -134,6 +138,9 @@ func (sg *SGroup) String() string {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
+	qLoad := 100 * sg.incQueueLength / sg.incQueueCapacity
+	pLoad := (sg.pktRateKpps * sg.sumCycles) / (1700 * 10)
+
 	info := "["
 	for i, ins := range sg.instances {
 		if i == 0 {
@@ -145,7 +152,7 @@ func (sg *SGroup) String() string {
 	info += fmt.Sprintf("]\n")
 	info += fmt.Sprintf("    Info: id=%d, pcie=%s, core=%d\n", sg.groupID, PCIeMappings[sg.pcieIdx], sg.coreID)
 	info += fmt.Sprintf("    Status: rdy=%v, active=%v, sched=%v\n", sg.isReady, sg.isActive, sg.isSched)
-	info += fmt.Sprintf("    Performance: cycles=%d, q=%d, qload=%d, pps=%d kpps, pload=%d", sg.sumCycles, sg.incQueueLength, 100*sg.incQueueLength/sg.incQueueCapacity, sg.pktRateKpps, 100*sg.pktRateKpps/sg.maxRateKpps)
+	info += fmt.Sprintf("    Performance: cycles=%d, q=%d, qload=%d, pps=%d kpps, pload=%d", sg.sumCycles, sg.incQueueLength, qLoad, sg.pktRateKpps, pLoad)
 
 	return info
 }
@@ -249,6 +256,13 @@ func (sg *SGroup) IsSched() bool {
 	return sg.isSched
 }
 
+/*
+var cnt float64 = float64(len(sg.instances)+1) * 5100 / float64(1/0.95-1) / float64(sg.sumCycles) / float64(sg.batchSize)
+	if int(math.Ceil(cnt)) != sg.batchCount {
+		fmt.Println("cnt=%d, batch count=%d", cnt, sg.batchCount)
+	}
+*/
+
 // TODO (Jianfeng): trigger extra scaling operations.
 // |sg| turns active if it has packets in its NIC queue, and turns
 // inactive if it has zero traffic rate and zero queue length.
@@ -263,6 +277,11 @@ func (sg *SGroup) updateTrafficInfo() {
 		sg.sumCycles = 0
 		for _, ins := range sg.instances {
 			sg.sumCycles += ins.getCycle()
+		}
+
+		// Calculates the max rate without context switching.
+		if sg.sumCycles > 0 {
+			sg.maxRateKpps = 1700000 / sg.sumCycles
 		}
 	}
 
@@ -309,7 +328,10 @@ func (sg *SGroup) GetPktLoad() int {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
-	return 100 * sg.pktRateKpps / sg.maxRateKpps
+	//return 100 * sg.pktRateKpps / sg.maxRateKpps
+	// CPU load = 100 * (packetRate * sumCycles) / (CPU Frequency)
+	// i.e. 100 * (sg.pktRateKpps * 1000 * sg.sumCycles) / (1700 * 1000,000)
+	return (sg.pktRateKpps * sg.sumCycles) / 1700 * 10
 }
 
 func (sg *SGroup) SetCoreID(coreID int) {

@@ -112,7 +112,10 @@ func (w *Worker) destroyFreeSGroup(sg *SGroup, wg *sync.WaitGroup) {
 func (w *Worker) createSGroup(sg *SGroup, dag *DAG) {
 	pcieIdx := sg.pcieIdx
 
-	for i, funcType := range dag.chains {
+	for i, nf := range dag.chains {
+		funcType := nf.funcType
+		cycleCost := nf.cycles
+		isPrimary := "false"
 		isIngress := "false"
 		isEgress := "false"
 		if i == 0 {
@@ -123,7 +126,7 @@ func (w *Worker) createSGroup(sg *SGroup, dag *DAG) {
 		}
 		vPortIncIdx, vPortOutIdx := i, i+1
 
-		ins, err := w.createInstance(funcType, pcieIdx, "false", isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+		ins, err := w.createInstance(funcType, cycleCost, pcieIdx, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 		if err != nil {
 			glog.Errorf("Failed to create nf[%s]. %s\n", funcType, err)
 

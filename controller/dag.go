@@ -11,6 +11,7 @@ import (
 type NF struct {
 	id       int
 	funcType string
+	cycles   int
 	prevNFs  []int
 	nextNFs  []int
 }
@@ -22,7 +23,7 @@ type NF struct {
 type DAG struct {
 	NFMap    map[int]*NF
 	flowlets []*flowlet
-	chains   []string
+	chains   []*NF
 	sgroups  []*SGroup
 	isActive bool
 }
@@ -31,7 +32,7 @@ func newDAG() *DAG {
 	return &DAG{
 		NFMap:    make(map[int]*NF),
 		flowlets: make([]*flowlet, 0),
-		chains:   make([]string, 0),
+		chains:   make([]*NF, 0),
 		sgroups:  make([]*SGroup, 0),
 		isActive: false,
 	}
@@ -60,9 +61,32 @@ func (g *DAG) String() string {
 // Returns an integral handler of this added NF.
 func (g *DAG) addNF(funcType string) int {
 	id := len(g.NFMap)
+	cycleCost, exists := NFCycleCosts[funcType]
+	if !exists {
+		cycleCost = 50
+	}
+
 	g.NFMap[id] = &NF{
 		id:       id,
 		funcType: funcType,
+		cycles:   cycleCost,
+		nextNFs:  make([]int, 0),
+		prevNFs:  make([]int, 0),
+	}
+	return id
+}
+
+func (g *DAG) addDummyNF(funcType string) int {
+	id := len(g.NFMap)
+	cycleCost, exists := NFCycleCosts[funcType]
+	if !exists {
+		cycleCost = 50
+	}
+
+	g.NFMap[id] = &NF{
+		id:       id,
+		funcType: "bypass",
+		cycles:   cycleCost,
 		nextNFs:  make([]int, 0),
 		prevNFs:  make([]int, 0),
 	}
@@ -114,14 +138,14 @@ func (g *DAG) Activate() error {
 	}
 
 	if ingress == nil || cnt != 1 {
-		return errors.New("Failed to active. Invalid ingress node.")
+		return errors.New("Failed to activate an NF chain. Invalid ingress node.")
 	}
 
 	g.chains = nil
 	// TODO: handle branching cases
 	curr := ingress
 	for {
-		g.chains = append(g.chains, curr.funcType)
+		g.chains = append(g.chains, curr)
 
 		if len(curr.nextNFs) == 0 {
 			break

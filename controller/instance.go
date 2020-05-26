@@ -38,6 +38,7 @@ type Instance struct {
 	podName        string
 	sg             *SGroup
 	tid            int
+	profiledCycle  int
 	cycle          int
 	incQueueLength int
 	pktRateKpps    int
@@ -45,7 +46,7 @@ type Instance struct {
 	mutex          sync.Mutex
 }
 
-func newInstance(funcType string, hostIp string, port int, podName string) *Instance {
+func newInstance(funcType string, cycleCost int, hostIp string, port int, podName string) *Instance {
 	instance := Instance{
 		funcType:       funcType,
 		isNF:           (funcType != "prim" && funcType != "sched"),
@@ -53,6 +54,7 @@ func newInstance(funcType string, hostIp string, port int, podName string) *Inst
 		address:        hostIp + ":" + strconv.Itoa(port),
 		podName:        podName,
 		tid:            kUninitializedTid,
+		profiledCycle:  cycleCost,
 		cycle:          0,
 		incQueueLength: 0,
 		pktRateKpps:    0,
