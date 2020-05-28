@@ -37,7 +37,7 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 		return "none", nil
 	}
 
-	sg := dag.findAvailableSGroup()
+	sg := dag.findAvailableSGroupHighLoadFirst()
 	// Picks an active SGroup |sg| and assigns the flow to it.
 	if sg != nil {
 		//glog.Infof("SGroup[%d], mac=%s, load=%d", sg.ID(), dmacMappings[sg.pcieIdx], sg.GetPktLoad())
@@ -171,6 +171,52 @@ func (w *Worker) scheduleOnce() {
 			glog.Errorf("Failed to attach SGroup[%d] to Core[%d]", sg.ID(), coreID)
 		}
 	}
+}
+
+// Selects an active |SGroup| for the logical NF DAG |g|. Picks
+// the one with the highest CPU load (packet rate).
+func (g *DAG) findAvailableSGroupHighLoadFirst() *SGroup {
+	var selected *SGroup = nil
+	for _, sg := range g.sgroups {
+		// Skips if there are instances not ready.
+		if !sg.IsReady() {
+			continue
+		}
+
+		// Skips overloaded SGroups.
+		if sg.GetQLoad() > 40 || sg.GetPktLoad() > 80 {
+			continue
+		}
+
+		if selected == nil {
+			selected = sg
+		} else if selected.GetPktRate() < sg.GetPktRate() {
+			selected = sg
+		}
+	}
+	if selected != nil {
+		return selected
+	}
+
+	for _, sg := range g.sgroups {
+		// Skips if there are instances not ready.
+		if !sg.IsReady() {
+			continue
+		}
+
+		// Skips overloaded SGroups.
+		if sg.GetPktLoad() > 80 {
+			continue
+		}
+
+		if selected == nil {
+			selected = sg
+		} else if selected.GetPktRate() < sg.GetPktRate() {
+			selected = sg
+		}
+	}
+
+	return selected
 }
 
 // Algorithm:

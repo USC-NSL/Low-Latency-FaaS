@@ -23,6 +23,7 @@ var moduleNameMappings = map[string]string{
 	"aesenc":   "AESCBCEnc",
 	"aesdec":   "AESCBCDec",
 	"acl":      "ACL",
+	"bypass":   "Bypass",
 }
 
 // Create a NF instance with type |funcType| on node |nodeName|,

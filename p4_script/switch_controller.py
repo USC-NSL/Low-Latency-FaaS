@@ -218,11 +218,13 @@ class ThriftInterface(object):
 # (spi) (si) -> (switchPort)
 class SwitchTable(object):
     _name = None
-    _table_entries = {}
-    _actions = set()
+    _table_entries = None
+    _actions = None
 
     def __init__(self, table_name):
         self._name = table_name
+        self._table_entries = {}
+        self._actions = set()
 
     def add_action(self, action):
         self._actions.add(action)
@@ -392,6 +394,7 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
 
         self._managed_tables.add('faas_port_table')
         self._managed_tables.add('faas_conn_table')
+
         for table_name in self._managed_tables:
             self._tables[table_name] = SwitchTable(table_name)
 
@@ -421,9 +424,12 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
         self._stop.set()
         if self._sniffer_thread != None:
             self._sniffer_thread.join()
-        # Cleans up.
+
+        # Cleans up ports and table entries.
         self.delete_all_ports()
         self.delete_all_table_entries()
+
+        # Closes the thrift session.
         self._interface.cleanup()
         self._interface = None
         return
@@ -483,6 +489,7 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
     # This function removes all existing table entries in the switch ASIC.
     def delete_all_table_entries(self):
         for table_name, table in self._tables.items():
+            print "Delete all entries [%d] in %s" %(len(table._table_entries), table_name)
             for entry_key in table._table_entries.keys():
                 self.delete_table_entry(table._name, entry_key)
 
@@ -502,7 +509,6 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
         if self._interface == None:
             return
 
-        #print self.dump_table_entry(table_name)
         # |entry_handler| is an integer that represents the rule index.
         entry_handler = self._interface.insert_exact_match_rule(table_name, action, match_spec, action_spec)
         # Stores the entry in a dict maintained by the table.
@@ -524,7 +530,6 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
                 return
             self._packets_counter += 1
 
-            table_name = "faas_conn_table"
             flowlet = (packet[IP].src, packet[IP].dst, packet[IP].proto, \
                 packet[TCP].sport, packet[TCP].dport)
             if flowlet in self._flows:
@@ -550,6 +555,7 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
                 return
 
             binary_dmac = (response.dmac).replace(":", "").decode("hex")
+            table_name = "faas_conn_table"
             action = "faas_conn_table_hit"
             args = [packet[IP].src, packet[IP].dst, \
                 packet[IP].proto, \

@@ -97,10 +97,10 @@ func (c *FaaSController) GetWorkerInfoByName(nodeName string) string {
 	return ""
 }
 
-// Adds an NF |funcType| to a |user|'s DAG. If |user| does not
-// exist, first creates a new |user| in |FaaSController|.
-// |user| is a string that represents the user's ID.
-func (c *FaaSController) AddNF(user string, funcType string) error {
+// Adds an NF of |funcType| to a |user|'s DAG. Returns an integral
+// handler of this NF. |user| represents the user's ID. If |user|
+// does not exist, creates a new |user| in |FaaSController|.
+func (c *FaaSController) AddNF(user string, funcType string) int {
 	if _, exists := c.dags[user]; !exists {
 		c.dags[user] = newDAG()
 	}
@@ -108,9 +108,17 @@ func (c *FaaSController) AddNF(user string, funcType string) error {
 	return c.dags[user].addNF(funcType)
 }
 
+func (c *FaaSController) AddDummyNF(user string, funcType string) int {
+	if _, exists := c.dags[user]; !exists {
+		c.dags[user] = newDAG()
+	}
+
+	return c.dags[user].addDummyNF(funcType)
+}
+
 // Connects two NFs |upNF| -> |downNF| to a |user|'s DAG.
 // |user| is a string that represents the user's ID.
-func (c *FaaSController) ConnectNFs(user string, upNF string, downNF string) error {
+func (c *FaaSController) ConnectNFs(user string, upNF int, downNF int) error {
 	if _, exists := c.dags[user]; !exists {
 		return errors.New(fmt.Sprintf("User [%s] has no NFs.", user))
 	}
@@ -166,16 +174,22 @@ func (c *FaaSController) ShowNFDAGs(user string) {
 func (c *FaaSController) CreateSGroup(nodeName string, nfs []string) error {
 	w, exists := c.workers[nodeName]
 	if !exists {
-		return errors.New(fmt.Sprintf("worker %s not found", nodeName))
+		return fmt.Errorf("Worker %s does not exist", nodeName)
 	}
 
 	dag := newDAG()
-	dag.chains = append(dag.chains, nfs...)
+	for _, nf := range nfs {
+		dag.addNF(nf)
+	}
+	if err := dag.Activate(); err != nil {
+		return err
+	}
+
 	glog.Infof("Deploy a DAG %v", dag.chains)
 
 	n := len(w.freeSGroups)
 	if n <= 0 {
-		return fmt.Errorf("Worker[%s] does not have free SGroups.", w.name)
+		return fmt.Errorf("Worker %s does not have free SGroups.", w.name)
 	}
 	var sg *SGroup = w.freeSGroups[n-1]
 	w.freeSGroups = w.freeSGroups[:(n - 1)]
@@ -252,8 +266,8 @@ func (c *FaaSController) InstanceUpdateStats(nodeName string, port int, qlen int
 		return fmt.Errorf("SGroup not found")
 	}
 
-	ins.updateTrafficInfo(qlen, kpps, cycle)
-	ins.sg.updateTrafficInfo()
+	ins.UpdateTrafficInfo(qlen, kpps, cycle)
+	ins.sg.UpdateTrafficInfo()
 	return nil
 }
 

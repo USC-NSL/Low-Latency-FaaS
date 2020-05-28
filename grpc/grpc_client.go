@@ -20,7 +20,7 @@ func (client *GRPCClient) IsConnEstablished() bool {
 // |address| is a string in the form of "IP:Port".
 func (client *GRPCClient) EstablishConnection(address string) error {
 	// Add context for gRPC request to set timeout to three seconds
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 
 	conn, err := grpc.DialContext(ctx, address, grpc.WithInsecure(), grpc.WithBlock())

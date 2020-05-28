@@ -11,6 +11,7 @@ import (
 type NF struct {
 	id       int
 	funcType string
+	cycles   int
 	prevNFs  []int
 	nextNFs  []int
 }
@@ -22,7 +23,7 @@ type NF struct {
 type DAG struct {
 	NFMap    map[int]*NF
 	flowlets []*flowlet
-	chains   []string
+	chains   []*NF
 	sgroups  []*SGroup
 	isActive bool
 }
@@ -31,7 +32,7 @@ func newDAG() *DAG {
 	return &DAG{
 		NFMap:    make(map[int]*NF),
 		flowlets: make([]*flowlet, 0),
-		chains:   make([]string, 0),
+		chains:   make([]*NF, 0),
 		sgroups:  make([]*SGroup, 0),
 		isActive: false,
 	}
@@ -56,30 +57,50 @@ func (g *DAG) String() string {
 	return strings.Join(dag, " ")
 }
 
-func (g *DAG) addNF(funcType string) error {
+// This function adds a logical NF of |funcType| to DAG |g|.
+// Returns an integral handler of this added NF.
+func (g *DAG) addNF(funcType string) int {
 	id := len(g.NFMap)
+	cycleCost, exists := NFCycleCosts[funcType]
+	if !exists {
+		// Sets it to the default value if profiling data is not available.
+		cycleCost = DEFAULT_CYCLE_COST
+	}
+
 	g.NFMap[id] = &NF{
 		id:       id,
 		funcType: funcType,
+		cycles:   cycleCost,
 		nextNFs:  make([]int, 0),
 		prevNFs:  make([]int, 0),
 	}
-	return nil
+	return id
 }
 
-func (g *DAG) connectNFs(up string, down string) error {
-	upID, downID := -1, -1
-	for id, nf := range g.NFMap {
-		if nf.funcType == up {
-			upID = id
-		} else if nf.funcType == down {
-			downID = id
-		}
+func (g *DAG) addDummyNF(funcType string) int {
+	id := len(g.NFMap)
+	cycleCost, exists := NFCycleCosts[funcType]
+	if !exists {
+		// Sets it to the default value if profiling data is not available.
+		cycleCost = DEFAULT_CYCLE_COST
 	}
 
-	if upID == -1 || downID == -1 {
-		return errors.New(fmt.Sprintf(
-			"Error: failed to connect [%s] -> [%s]", up, down))
+	g.NFMap[id] = &NF{
+		id:       id,
+		funcType: "bypass",
+		cycles:   cycleCost,
+		nextNFs:  make([]int, 0),
+		prevNFs:  make([]int, 0),
+	}
+	return id
+}
+
+func (g *DAG) connectNFs(upID int, downID int) error {
+	if upID < 0 || upID > len(g.NFMap) {
+		return fmt.Errorf("Invalid NF |upID| (expect: [0, %d], input: %d)", len(g.NFMap), upID)
+	}
+	if downID < 0 || downID > len(g.NFMap) {
+		return fmt.Errorf("Invalid NF |downID| (expect: [0, %d], input: %d)", len(g.NFMap), downID)
 	}
 
 	g.NFMap[upID].nextNFs = append(g.NFMap[upID].nextNFs, downID)
@@ -119,14 +140,14 @@ func (g *DAG) Activate() error {
 	}
 
 	if ingress == nil || cnt != 1 {
-		return errors.New("Failed to active. Invalid ingress node.")
+		return errors.New("Failed to activate an NF chain. Invalid ingress node.")
 	}
 
 	g.chains = nil
 	// TODO: handle branching cases
 	curr := ingress
 	for {
-		g.chains = append(g.chains, curr.funcType)
+		g.chains = append(g.chains, curr)
 
 		if len(curr.nextNFs) == 0 {
 			break
