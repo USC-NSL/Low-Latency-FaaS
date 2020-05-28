@@ -184,7 +184,7 @@ func (g *DAG) findAvailableSGroupHighLoadFirst() *SGroup {
 		}
 
 		// Skips overloaded SGroups.
-		if sg.GetQLoad() > 40 && sg.GetPktLoad() > 80 {
+		if sg.GetQLoad() > 40 || sg.GetPktLoad() > 80 {
 			continue
 		}
 

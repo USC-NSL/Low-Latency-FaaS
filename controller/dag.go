@@ -63,7 +63,8 @@ func (g *DAG) addNF(funcType string) int {
 	id := len(g.NFMap)
 	cycleCost, exists := NFCycleCosts[funcType]
 	if !exists {
-		cycleCost = 50
+		// Sets it to the default value if profiling data is not available.
+		cycleCost = DEFAULT_CYCLE_COST
 	}
 
 	g.NFMap[id] = &NF{
@@ -80,7 +81,8 @@ func (g *DAG) addDummyNF(funcType string) int {
 	id := len(g.NFMap)
 	cycleCost, exists := NFCycleCosts[funcType]
 	if !exists {
-		cycleCost = 50
+		// Sets it to the default value if profiling data is not available.
+		cycleCost = DEFAULT_CYCLE_COST
 	}
 
 	g.NFMap[id] = &NF{

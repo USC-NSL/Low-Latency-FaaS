@@ -1,5 +1,10 @@
 package controller
 
+const (
+	// The cycle cost of an empty queue module.
+	DEFAULT_CYCLE_COST = 50
+)
+
 var NFCycleCosts = map[string]int{
 	"fc":          100,
 	"nat":         250,
@@ -9,5 +14,5 @@ var NFCycleCosts = map[string]int{
 	"aesenc":      40000,
 	"aesdec":      60000,
 	"acl":         250,
-	"none":        50,
+	"none":        DEFAULT_CYCLE_COST,
 }
