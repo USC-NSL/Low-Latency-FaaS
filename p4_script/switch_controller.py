@@ -1,7 +1,7 @@
 
 # This is the P4 switch controller that works for the P4 switch in a 
-# FaaS-NFV system. The controller sets up the collection of forwarding 
-# rules for each new flow.
+# FaaS-NFV system. 
+# The controller sets up forwarding rules for each new flow.
 # (1) Upon receiving the first packet of a flow, the switch controller
 # queries FaaS-Controller to select all potentially related container
 # instances, and encodes results in the NSH header.
