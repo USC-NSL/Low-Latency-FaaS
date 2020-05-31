@@ -11,6 +11,7 @@
 import os
 import sys
 import json
+import struct
 import logging
 import time
 from operator import attrgetter
@@ -23,7 +24,7 @@ from ryu.ofproto import ofproto_v1_0
 from ryu.ofproto import ofproto_v1_2
 from ryu.ofproto import ofproto_v1_3
 from ryu.lib import hub
-from ryu.lib.packet import packet, ethernet, ether_types, ipv4, icmp
+from ryu.lib.packet import packet, ethernet, ether_types, ipv4, in_proto, icmp, tcp, udp
 from ryu.lib import ofctl_v1_0
 from ryu.lib import ofctl_v1_2
 from ryu.lib import ofctl_v1_3
@@ -262,18 +263,36 @@ class FaaSSwitch(app_manager.RyuApp):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
+        # Deletes previous flows in the table.
+        self.delete_all_flows(datapath)
+
+        # Adds some default flows.
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
                                           ofproto.OFPCML_NO_BUFFER)]
+
+        # Bypass the MAC-IP table.
+        match_1 = parser.OFPMatch()
+        actions_1 = []
+        #self.add_flow(datapath, 0, match_1, actions_1, 100)
 
         # Installs the table-miss flow entry.
-        match = parser.OFPMatch()
-        actions = []
-        self.add_flow(datapath, 0, match, actions, 100)
-
-        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
+        match_2 = parser.OFPMatch()
+        actions_2 = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
                                           ofproto.OFPCML_NO_BUFFER)]
-        self.add_flow(datapath, 0, match, actions, 200)
+        #self.add_flow(datapath, 0, match_2, actions_2, 200)
+
+        # Installs rules for testing.
+        match_3 = parser.OFPMatch(eth_src="11:11:11:11:11:11", eth_type=ether_types.ETH_TYPE_IP, 
+            ipv4_src="10.0.0.1", ipv4_dst="10.0.0.2", ip_proto=in_proto.IPPROTO_TCP, 
+            tcp_src=1234, tcp_dst=4321)
+        actions_3 = [parser.OFPActionSetField(eth_dst="00:00:00:00:00:01"),
+            parser.OFPActionOutput(17)]
+        #self.add_flow(datapath, 1, match_3, actions_3, 200)
+
+        match_4 = parser.OFPMatch(in_port=17)
+        actions_4 = [parser.OFPActionOutput(9)]
+        #self.add_flow(datapath, 1, match_4, actions_4, 200)
 
     def add_flow(self, datapath, priority, match, actions, table_id):
         ofproto = datapath.ofproto
@@ -293,9 +312,28 @@ class FaaSSwitch(app_manager.RyuApp):
                                 match=match, instructions=inst, table_id=table_id)
         datapath.send_msg(mod)
 
+    def delete_flow(self, datapath, priority, match, actions, table_id):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+
+        inst = []
+        mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
+                                command=ofproto.OFPFC_DELETE,
+                                match=match, instructions=inst, table_id=table_id)
+        datapath.send_msg(mod)
+
+    def delete_all_flows(self, datapath):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+
+        empty_match = parser.OFPMatch()
+        inst = []
+        self.delete_flow(datapath, 1, empty_match, inst, 200)
+
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
         DLOG.info("Receive a packet.")
+        return
 
         msg = ev.msg
         datapath = msg.datapath
