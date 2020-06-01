@@ -133,12 +133,10 @@ class FaaSSwitch(app_manager.RyuApp):
         self.mac_to_port = {}
 
     # The background monitoring function.
+    # Outputs the monitoring message every 10-second.
     def _monitor(self):
         while True:
             for dp in self.datapaths.values():
-                #self._request_stats(dp)
-                #hub.sleep(2)
-
                 try:
                     ofctl = supported_ofctl.get(dp.ofproto.OFP_VERSION)
                 except KeyError:
@@ -155,7 +153,7 @@ class FaaSSwitch(app_manager.RyuApp):
                     self._print_formatted_flow_stats(flow_ret)
                     self._print_formatted_port_stats(port_ret)
 
-            hub.sleep(2)
+            hub.sleep(10)
 
     def _request_stats(self, datapath):
         ofproto = datapath.ofproto
@@ -256,6 +254,7 @@ class FaaSSwitch(app_manager.RyuApp):
                 DLOG.info('unregister datapath: %016x, %s', datapath.id, str(datapath.id))
                 del self.datapaths[datapath.id]
 
+    # Called when the switch is ready and waiting for initial configurations.
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         DLOG.info("Enter config dispatcher")
@@ -263,10 +262,10 @@ class FaaSSwitch(app_manager.RyuApp):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
-        # Deletes previous flows in the table.
+        # Deletes existing flows.
         self.delete_all_flows(datapath)
 
-        # Adds some default flows.
+        # Adds default rules.
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
                                           ofproto.OFPCML_NO_BUFFER)]
@@ -274,39 +273,41 @@ class FaaSSwitch(app_manager.RyuApp):
         # Bypass the MAC-IP table.
         match_1 = parser.OFPMatch()
         actions_1 = []
-        #self.add_flow(datapath, 0, match_1, actions_1, 100)
+        self.add_flow(datapath, 0, match_1, actions_1, 100)
 
         # Installs the table-miss flow entry.
         match_2 = parser.OFPMatch()
         actions_2 = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
                                           ofproto.OFPCML_NO_BUFFER)]
-        #self.add_flow(datapath, 0, match_2, actions_2, 200)
+        self.add_flow(datapath, 0, match_2, actions_2, 200)
 
+        """
         # Installs rules for testing.
         match_3 = parser.OFPMatch(eth_src="11:11:11:11:11:11", eth_type=ether_types.ETH_TYPE_IP, 
             ipv4_src="10.0.0.1", ipv4_dst="10.0.0.2", ip_proto=in_proto.IPPROTO_TCP, 
             tcp_src=1234, tcp_dst=4321)
         actions_3 = [parser.OFPActionSetField(eth_dst="00:00:00:00:00:01"),
             parser.OFPActionOutput(17)]
-        #self.add_flow(datapath, 1, match_3, actions_3, 200)
+        self.add_flow(datapath, 1, match_3, actions_3, 200)
 
         match_4 = parser.OFPMatch(in_port=17)
         actions_4 = [parser.OFPActionOutput(9)]
-        #self.add_flow(datapath, 1, match_4, actions_4, 200)
+        self.add_flow(datapath, 1, match_4, actions_4, 200)
+        """
 
     def add_flow(self, datapath, priority, match, actions, table_id):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
+        # construct the flow instruction
         inst = []
-
-        # construct flow_mod message and send it.
         if actions != None and len(actions) > 0:
             inst.append(parser.OFPInstructionActions(
                                 ofproto.OFPIT_APPLY_ACTIONS, actions))
         if table_id == 100:
             inst.append(parser.OFPInstructionGotoTable(200))
 
+        # construct flow_mod message and send it.
         mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
                                 command=ofproto.OFPFC_ADD,
                                 match=match, instructions=inst, table_id=table_id)
@@ -316,19 +317,26 @@ class FaaSSwitch(app_manager.RyuApp):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
+        # construct the flow instruction
         inst = []
+        if actions != None and len(actions) > 0:
+            inst.append(parser.OFPInstructionActions(
+                                ofproto.OFPIT_APPLY_ACTIONS, actions))
+
+        # construct flow_mod message and send it.
         mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
-                                command=ofproto.OFPFC_DELETE,
-                                match=match, instructions=inst, table_id=table_id)
+                                command=ofproto.OFPFC_DELETE, 
+                                match=match, instructions=inst,
+                                out_port=ofproto.OFPP_ANY, out_group=ofproto.OFPP_ANY, table_id=table_id)
         datapath.send_msg(mod)
 
     def delete_all_flows(self, datapath):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
-        empty_match = parser.OFPMatch()
-        inst = []
-        self.delete_flow(datapath, 1, empty_match, inst, 200)
+        match = parser.OFPMatch()
+        actions = []
+        self.delete_flow(datapath, 1, match, inst, 200)
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
