@@ -360,9 +360,10 @@ class FaaSSwitchController(app_manager.RyuApp):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
+        # This FlowMod matches all flows. So it will delete all flows at table 200.
         match = parser.OFPMatch()
         actions = []
-        self.delete_flow(datapath, 1, match, inst, 200)
+        self.delete_flow(datapath, 1, match, actions, 200)
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
@@ -446,11 +447,11 @@ class FaaSSwitchController(app_manager.RyuApp):
             flow_info = message_pb.FlowInfo()
             # Parses |flow_info| from the packet as it is the first packet of the flow.
             # e.g. ip_src = '204.57.7.6', ip_protocol = 6 (0x6), tcp_sport = 22
-            flow_info.ipv4_src = packet[IP].src
-            flow_info.ipv4_dst = packet[IP].dst
-            flow_info.ipv4_protocol = packet[IP].proto
-            flow_info.tcp_sport = packet[TCP].sport
-            flow_info.tcp_dport = packet[TCP].dport
+            flow_info.ipv4_src = ipv4_src
+            flow_info.ipv4_dst = ipv4_dst
+            flow_info.ipv4_protocol = 6
+            flow_info.tcp_sport = tcp_src
+            flow_info.tcp_dport = tcp_dst
 
             faas_client = faas_rpc.FaaSControlStub(self._faas_channel)
             response = faas_client.UpdateFlow(flow_info)
