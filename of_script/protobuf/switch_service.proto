@@ -1,0 +1,12 @@
+
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+import "protobuf/message.proto";
+
+package bess.pb;
+
+service SwitchControl {
+	// Deletes one flow entry from FaaSConnTable.
+    rpc DeleteFlowEntry (FlowTableEntry) returns (google.protobuf.Empty) {}
+}

@@ -8,12 +8,15 @@
 # (2) Upon receiving all subsequent packets of a flow, the switch ensures
 # that these packets go through the same path.
 
+import time
 import os
 import sys
 import json
 import struct
-import logging
+import copy
 import time
+import collections
+import logging
 from operator import attrgetter
 from ryu.base import app_manager
 from ryu.app import simple_switch_13
@@ -29,8 +32,19 @@ from ryu.lib import ofctl_v1_0
 from ryu.lib import ofctl_v1_2
 from ryu.lib import ofctl_v1_3
 
+# No ofdpa usage.
 #import ofdpa.mods as Mods
 #import ofdpa.flow_description as FlowDescriptionReader
+
+# Protobuf and GRPC.
+import grpc
+from concurrent import futures
+from google.protobuf.empty_pb2 import Empty
+import protobuf.message_pb2 as message_pb
+import protobuf.switch_service_pb2 as switch_pb
+import protobuf.switch_service_pb2_grpc as switch_rpc
+import protobuf.faas_service_pb2 as faas_pb
+import protobuf.faas_service_pb2_grpc as faas_rpc
 
 
 supported_ofctl = {
@@ -38,6 +52,9 @@ supported_ofctl = {
     ofproto_v1_2.OFP_VERSION: ofctl_v1_2,
     ofproto_v1_3.OFP_VERSION: ofctl_v1_3,
 }
+
+# Todo(Jianfeng): remove these hardcoded IPs.
+kFaaSServerAddress = "204.57.3.169:10515"
 
 
 ryu_loggers = logging.Logger.manager.loggerDict
@@ -102,7 +119,7 @@ Flow-stats example:
 {"329655727540867208": [{"priority": 0, "cookie": 0, "idle_timeout": 0, "hard_timeout": 0, "byte_count": 18446744073709551615, "duration_sec": 61, "duration_nsec": 4294967295, "packet_count": 18446744073709551615, "length": 80, "flags": 0, "actions": ["OUTPUT:CONTROLLER"], "match": {}, "table_id": 100}]}
 """
 
-class FaaSSwitch(app_manager.RyuApp):
+class FaaSSwitchController(app_manager.RyuApp):
     OFP_VERSIONS = [
         ofproto_v1_0.OFP_VERSION,
         ofproto_v1_2.OFP_VERSION,
@@ -110,11 +127,12 @@ class FaaSSwitch(app_manager.RyuApp):
     ]
     _CONTEXTS = {
         'dpset': dpset.DPSet,
-        #'wsgi': WSGIApplication
     }
 
     def __init__(self, *args, **kwargs):
-        super(FaaSSwitch, self).__init__(*args, **kwargs)
+        super(FaaSSwitchController, self).__init__(*args, **kwargs)
+
+        self._faas_channel = grpc.insecure_channel(kFaaSServerAddress)
 
         self.monitor_thread = hub.spawn(self._monitor)
 
@@ -129,11 +147,19 @@ class FaaSSwitch(app_manager.RyuApp):
         # initialize all data paths,
         self.datapaths = {}
 
-        # initialize mac address table.
+        # initialize mac_to_port tables
         self.mac_to_port = {}
 
+        # internal counters
+        self._flows_counter = 0
+        self._pkts_counter = 0
+
+        # internal flow table
+        self._flows = set()
+        self._flows_table_entries = {}
+
     # The background monitoring function.
-    # Outputs the monitoring message every 10-second.
+    # Outputs the message every 10-second.
     def _monitor(self):
         while True:
             for dp in self.datapaths.values():
@@ -341,7 +367,6 @@ class FaaSSwitch(app_manager.RyuApp):
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
         DLOG.info("Receive a packet.")
-        return
 
         msg = ev.msg
         datapath = msg.datapath
@@ -361,60 +386,108 @@ class FaaSSwitch(app_manager.RyuApp):
         eth_src = eth_pkt.src
         eth_dst = eth_pkt.dst
 
-        if eth_dst in self.mac_to_port[dpid]:
-            out_port = self.mac_to_port[dpid][eth_dst]
-        else:
-            out_port = ofproto.OFPP_FLOOD
-
-        # construct action list.
-        actions = [parser.OFPActionOutput(out_port)]
-
-
         # Helper functions on processing packets.
+        # ICMP traffic:
+        # 1. checks |ether_dst| and tries to find the out port; associates |ether_src| with |in_port|;
+        # 2. if not found, then FLOOD the packet;
+        # 3. if found, sends the packet out only to that port and installs a rule;
         def handle_icmp_pkt(icmp_pkt):
             if icmp_pkt == None:
                 return
 
             DLOG.info("%d: ICMP pkt in port[%s]: (%s,%s)", dpid, in_port, eth_src, eth_dst)
 
+            # icmp packets rely on the |self.mac_to_port| table.
+            if eth_dst in self.mac_to_port[dpid]:
+                out_port = self.mac_to_port[dpid][eth_dst]
+            else:
+                out_port = ofproto.OFPP_FLOOD
+
+            # construct action list.
+            actions = [parser.OFPActionOutput(out_port)]
+
             # install a flow to avoid packet_in next time.
             if out_port != ofproto.OFPP_FLOOD:
                 match = parser.OFPMatch(eth_dst=eth_dst, eth_type=ether_types.ETH_TYPE_IP)
                 self.add_flow(datapath, 1, match, actions, 200)
 
-        def handle_ipv4_pkt(ipv4_pkt):
-            if ipv4_pkt == None:
+            # learn a mac address to avoid FLOOD next time.
+            self.mac_to_port[dpid][eth_src] = in_port
+
+            # construct packet_out message and send it.
+            out = parser.OFPPacketOut(datapath=datapath,
+                                      buffer_id=ofproto.OFP_NO_BUFFER,
+                                      in_port=in_port, actions=actions,
+                                      data=msg.data)
+            datapath.send_msg(out)
+
+        # TCP traffic:
+        # 1. ensures that |flowlet| is a new flow;
+        # 2. for a new flow, queries the FaaSController server to get |select_port| and 
+        # |select_dmac|. Then, installs a new rule to the flow table;
+        # 3. applies the same operation on the packet;
+        def handle_ipv4_pkt(ipv4_pkt, tcp_pkt):
+            if ipv4_pkt == None or tcp_pkt == None:
                 return
 
-            ipv4_src = ipv4_pkt.src
-            ipv4_dst = ipv4_pkt.dst
-            DLOG.info("%d: IP pkt in port[%s] (%s,%s,%s,%s)", dpid, in_port, eth_src, eth_dst, ipv4_src, ipv4_dst)
+            ipv4_src, ipv4_dst = ipv4_pkt.src, ipv4_pkt.dst
+            tcp_src, tcp_dst = tcp_pkt.src_port, tcp_pkt.dst_port
 
-            select_port = "13"
-            actions = [parser.OFPActionOutput(select_port)]
+            flowlet = (ipv4_src, ipv4_dst, tcp_src, tcp_dst)
+            # Subsequent packets arrive before their table entry is installed.
+            # Just ignores them.
+            if flowlet in self._flows:
+                return
+
+            DLOG.info("%d: flow in port[%s] (%s,%s,%d,%d)", dpid, in_port, ipv4_src, ipv4_dst, tcp_src, tcp_dst)
+            self._flows.add(flowlet)
+            self._flows_counter += 1
+
+            flow_info = message_pb.FlowInfo()
+            # Parses |flow_info| from the packet as it is the first packet of the flow.
+            # e.g. ip_src = '204.57.7.6', ip_protocol = 6 (0x6), tcp_sport = 22
+            flow_info.ipv4_src = packet[IP].src
+            flow_info.ipv4_dst = packet[IP].dst
+            flow_info.ipv4_protocol = packet[IP].proto
+            flow_info.tcp_sport = packet[TCP].sport
+            flow_info.tcp_dport = packet[TCP].dport
+
+            faas_client = faas_rpc.FaaSControlStub(self._faas_channel)
+            response = faas_client.UpdateFlow(flow_info)
+
+            if response.dmac == "none":
+                return
+
+            select_dmac = response.dmac
+            select_port = int(response.switch_port)
+            actions = [parser.OFPActionSetField(eth_dst=select_dmac),
+                parser.OFPActionOutput(select_port)]
             # install a flow to avoid packet_in next time.
-            match = parser.OFPMatch(eth_dst=eth_dst, eth_type=ether_types.ETH_TYPE_IP, 
-                ipv4_src=ipv4_src, ipv4_dst=ipv4_dst)
+            match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, 
+                ipv4_src=ipv4_src, ipv4_dst=ipv4_dst, ip_proto=in_proto.IPPROTO_TCP, 
+                tcp_src=tcp_src, tcp_dst=tcp_dst)
             self.add_flow(datapath, 2, match, actions, 200)
+
+            # inserts the new flow into the internal table.
+            self._flows_table_entries[flowlet] = (select_dmac, select_port)
+
+            # construct packet_out message and send it.
+            out = parser.OFPPacketOut(datapath=datapath,
+                                      buffer_id=ofproto.OFP_NO_BUFFER,
+                                      in_port=in_port, actions=actions,
+                                      data=msg.data)
+            datapath.send_msg(out)
 
 
         icmp_pkt = pkt.get_protocol(icmp.icmp)
         if icmp_pkt:
             handle_icmp_pkt(icmp_pkt)
 
-        ipv4_pkt = pkt.get_protocol(ipv4.ipv4)
-        if ipv4_pkt:
-            handle_ipv4_pkt(ipv4_pkt)
+        ipv4_pkt, tcp_pkt = pkt.get_protocol(ipv4.ipv4), pkt.get_protocol(tcp.tcp)
+        if ipv4_pkt and tcp_pkt:
+            handle_ipv4_pkt(ipv4_pkt, tcp_pkt)
 
-        # learn a mac address to avoid FLOOD next time.
-        self.mac_to_port[dpid][eth_src] = in_port
-
-        # construct packet_out message and send it.
-        out = parser.OFPPacketOut(datapath=datapath,
-                                  buffer_id=ofproto.OFP_NO_BUFFER,
-                                  in_port=in_port, actions=actions,
-                                  data=msg.data)
-        datapath.send_msg(out)
+        return
 
 
 if __name__ == "__main__":
