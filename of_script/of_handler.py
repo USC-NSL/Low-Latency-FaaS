@@ -461,6 +461,8 @@ class FaaSSwitchController(app_manager.RyuApp):
 
             select_dmac = response.dmac
             select_port = int(response.switch_port)
+            # Note: OFPActionOutput takes a hex integer as input.
+            select_port = 17
             actions = [parser.OFPActionSetField(eth_dst=select_dmac),
                 parser.OFPActionOutput(select_port)]
             # install a flow to avoid packet_in next time.
