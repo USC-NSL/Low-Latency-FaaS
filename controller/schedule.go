@@ -40,8 +40,8 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 	sg := dag.findAvailableSGroupHighLoadFirst()
 	// Picks an active SGroup |sg| and assigns the flow to it.
 	if sg != nil {
-		//glog.Infof("SGroup[%d], mac=%s, load=%d", sg.ID(), dmacMappings[sg.pcieIdx], sg.GetPktLoad())
-		return dmacMappings[sg.pcieIdx], nil
+		//glog.Infof("SGroup[%d], mac=%s, load=%d", sg.ID(), DefaultDstMACs[sg.pcieIdx], sg.GetPktLoad())
+		return DefaultDstMACs[sg.pcieIdx], nil
 	}
 
 	// No active SGroups. Triggers a scale-up event.
@@ -52,7 +52,7 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 	// get queued up at the NIC queue for a while.
 	if sg = c.getFreeSGroup(); sg != nil {
 		go sg.worker.createSGroup(sg, dag)
-		return dmacMappings[sg.pcieIdx], nil
+		return DefaultDstMACs[sg.pcieIdx], nil
 	}
 
 	// All active SGroups are running heavily. No free SGroups

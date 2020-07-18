@@ -41,6 +41,7 @@ type Worker struct {
 	grpc.SchedulerGRPCHandler
 	name             string
 	ip               string
+	pcie             []string
 	sched            *Instance
 	cores            map[int]*Core
 	sgroups          SGroupSlice
@@ -54,16 +55,24 @@ type Worker struct {
 	sgMutex          sync.Mutex
 }
 
-func NewWorker(name string, ip string, coreNumOffset int, coreNum int) *Worker {
+func NewWorker(name string, ip string, coreNumOffset int, coreNum int, pcie []string) *Worker {
+	perWorkerPCIeDevices := make([]string, 0)
+	if len(pcie) > 0 {
+		copy(perWorkerPCIeDevices, pcie)
+	} else {
+		copy(perWorkerPCIeDevices, DefaultPCIeDevices)
+	}
+
 	// Ports taken by instances are between [50052, 51051]
 	w := Worker{
 		name:             name,
 		ip:               ip,
+		pcie:             perWorkerPCIeDevices,
 		cores:            make(map[int]*Core),
 		sgroups:          make([]*SGroup, 0),
 		freeSGroups:      make([]*SGroup, 0),
 		instancePortPool: utils.NewIndexPool(50052, 1000),
-		pciePool:         utils.NewIndexPool(0, len(PCIeMappings)),
+		pciePool:         utils.NewIndexPool(0, len(perWorkerPCIeDevices)),
 		insStartupPool:   NewInstancePool(),
 		op:               make(chan FaaSOP, 64),
 		schedOp:          make(chan FaaSOP, 64),
@@ -151,7 +160,7 @@ func (w *Worker) createSched() error {
 func (w *Worker) createInstance(funcType string, cycleCost int, pcieIdx int, isPrimary string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) (*Instance, error) {
 	// Both |IndexPool| and |InstancePool| are thread-safe types.
 	port := w.instancePortPool.GetNextAvailable()
-	podName, err := kubectl.K8sHandler.CreateDeployment(w.name, funcType, port, PCIeMappings[pcieIdx], isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+	podName, err := kubectl.K8sHandler.CreateDeployment(w.name, funcType, port, w.pcie[pcieIdx], isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 	if err != nil {
 		w.instancePortPool.Free(port)
 		return nil, err
