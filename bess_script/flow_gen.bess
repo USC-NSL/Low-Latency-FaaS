@@ -1,0 +1,47 @@
+# This BESS script generates a simple flow.
+
+import scapy.all as scapy
+
+# This script generates a number of flows at a specified packet rate.
+num_cores=int($BESS_CORES!'1')
+num_flows=int($BESS_FLOWS!'400')
+base_rate=int($BESS_INIT_RATE!'4000000')
+
+flow_time = 40 #five seconds long
+
+# Create a "template" packet to use for generated flows.
+# All packets in flow will follow this formula; flowgen
+# changes dst IP to generate new connections.
+dst_ether=($BESS_DST_ETHER!'00:00:00:00:00:04')
+src_ether=($BESS_SRC_ETHER!'00:15:4d:12:2b:f4')
+eth = scapy.Ether(src=src_ether, dst=dst_ether)
+src_ip=($BESS_SRC_IP!'10.0.0.1')
+dst_ip=($BESS_DST_IP!'192.0.0.1')
+ip = scapy.IP(src=src_ip, dst=dst_ip)
+src_port = int($BESS_SRC_PORT!'10001')
+udp = scapy.TCP(sport=src_port, dport=8080)
+payload = "FaaS-NFV is cool." * 20
+pkt_template = bytes(eth/ip/udp/payload)
+print(len(pkt_template))
+
+port0::PMDPort(pci='81:00.0', num_inc_q=1, num_out_q=num_cores)
+port_inc::PortInc(port=port0)
+
+flowgens = dict()
+for wid in range(num_cores):
+    bess.add_worker(wid=wid, core=wid)
+    flowsrc::FlowGen(template = pkt_template, \
+        pps = base_rate / num_cores, \
+        flow_rate = num_flows / flow_time, \
+        flow_duration = flow_time, \
+        arrival = 'uniform', duration='uniform', quick_rampup=False, \
+    ip_src_range = 50, ip_dst_range = 50)
+    flowsrc -> Timestamp() -> QueueOut(port=port0, qid=wid)
+
+port_inc -> Measure() -> Sink()
+
+bess.add_worker(wid=num_cores, core=num_cores)
+bess.add_worker(wid=num_cores+1, core=num_cores+1)
+port_inc.attach_task(wid=num_cores+1)
+
+bess.resume_all()

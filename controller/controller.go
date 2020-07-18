@@ -18,23 +18,34 @@ import (
 // |dags| maintains all logical representations of NF DAGs.
 type FaaSController struct {
 	grpc.ToRGRPCHandler
-	workers map[string]*Worker
-	dags    map[string]*DAG
+	workers  map[string]*Worker
+	dags     map[string]*DAG
+	masterIP string
 }
 
 // Creates a new FaaS controller.
-func NewFaaSController(isTest bool) *FaaSController {
+func NewFaaSController(isTest bool, cluster *Cluster) *FaaSController {
 	c := &FaaSController{
-		workers: make(map[string]*Worker),
-		dags:    make(map[string]*DAG),
+		workers:  make(map[string]*Worker),
+		dags:     make(map[string]*DAG),
+		masterIP: cluster.Master.IP,
 	}
 
 	// Initializes all worker nodes when starting a |FaaSController|.
-	// Now core 0 is reserved for the scheduler on the machine.
-	// TODO: Replace hard-code information with reading from k8s configurations.
-	//c.createWorker("uscnsl", "204.57.7.2", 1, 7)
-	c.createWorker("ubuntu", "204.57.7.11", 1, 7)
+	// Note: at each worker machine, core 0 is reserved for the scheduler on
+	// the machine. Then, coreNum is set to Cores - 1 because these cores are
+	// for running NFs.
+	for i := 0; i < len(cluster.Workers); i++ {
+		name := cluster.Workers[i].Name
+		ip := cluster.Workers[i].IP
+		coreNum := cluster.Workers[i].Cores - 1
+		pcie := cluster.Workers[i].PCIe
+		//switchPort := cluster.Workers[i].SwitchPort
+		c.createWorker(name, ip, 1, coreNum, pcie)
+	}
 
+	// If we are running tests, skip initializing all free SGroups because tests
+	// are expected to create their free SGroups.
 	if !isTest {
 		// Initializes all hugepages and NIC queues.
 		for _, w := range c.workers {
@@ -47,12 +58,12 @@ func NewFaaSController(isTest bool) *FaaSController {
 }
 
 func (c *FaaSController) createWorker(name string, ip string,
-	coreNumOffset int, coreCount int) {
+	coreNumOffset int, coreCount int, pcie []string) {
 	if _, exists := c.workers[name]; exists {
 		return
 	}
 
-	c.workers[name] = NewWorker(name, ip, coreNumOffset, coreCount)
+	c.workers[name] = NewWorker(name, ip, coreNumOffset, coreCount, pcie)
 }
 
 func (c *FaaSController) getWorker(nodeName string) *Worker {

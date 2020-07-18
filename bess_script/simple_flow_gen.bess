@@ -1,0 +1,41 @@
+
+# This BESS script generates a simple flow.
+
+import scapy.all as scapy
+
+num_cores=int($BESS_CORES!'1')
+
+# Create a "template" packet to use for generated flows.
+# All packets in flow will follow this formula; flowgen
+# changes dst IP to generate new connections.
+src_ether = '00:15:4d:12:2b:f4'
+dst_ether = '00:00:00:00:00:04'
+src_ip = '10.0.0.1'
+dst_ip = '192.0.0.1'
+src_port = 10001
+dst_port = 8080
+eth = scapy.Ether(src=src_ether, dst=dst_ether)
+ip = scapy.IP(src=src_ip, dst=dst_ip)
+tcp = scapy.TCP(sport=src_port, dport=dst_port)
+payload = "FaaS-NFV is cool." * 20
+pkt_template = bytes(eth/ip/tcp/payload)
+print(len(pkt_template))
+
+port0::PMDPort(pci='81:00.0', num_inc_q=1, num_out_q=num_cores)
+port_inc::PortInc(port=port0)
+
+flowgens = dict()
+for wid in range(num_cores):
+    bess.add_worker(wid=wid, core=wid)
+
+    flowgens[wid] = Source()
+    flowgens[wid] -> Rewrite(templates=[pkt_template]) -> Timestamp() -> QueueOut(port=port0, qid=wid)
+    flowgens[wid].attach_task(wid=wid)
+
+port_inc -> Measure() -> Sink()
+
+bess.add_worker(wid=num_cores, core=num_cores)
+bess.add_worker(wid=num_cores+1, core=num_cores+1)
+port_inc.attach_task(wid=num_cores+1)
+
+bess.resume_all()

@@ -16,6 +16,44 @@ const (
 	CONTEXT_SWITCH_CYCLE_COST_PP = 5100
 )
 
+// These are default PCIe devices in a host. Each of these devices has its
+// own Dst MAC address listed in DefaultDstMACs (in the exactly same order).
+var DefaultPCIeDevices = []string{
+	"5e:02.0",
+	"5e:02.1",
+	"5e:02.2",
+	"5e:02.3",
+	"5e:02.4",
+	"5e:02.5",
+	"5e:02.6",
+	"5e:02.7",
+	"5e:03.0",
+	"5e:03.1",
+	"5e:03.2",
+	"5e:03.3",
+	"5e:03.4",
+	"5e:03.5",
+	"5e:03.6",
+}
+
+var DefaultDstMACs = []string{
+	"00:00:00:00:00:01",
+	"00:00:00:00:00:02",
+	"00:00:00:00:00:03",
+	"00:00:00:00:00:04",
+	"00:00:00:00:00:05",
+	"00:00:00:00:00:06",
+	"00:00:00:00:00:07",
+	"00:00:00:00:00:08",
+	"00:00:00:00:00:09",
+	"00:00:00:00:00:10",
+	"00:00:00:00:00:11",
+	"00:00:00:00:00:12",
+	"00:00:00:00:00:13",
+	"00:00:00:00:00:14",
+	"00:00:00:00:00:15",
+}
+
 // The abstraction of minimal scheduling unit at each CPU core.
 // |manager| manages NIC queues, memory buffers.
 // |groupID| is the unique ID of the sGroup on a worker.
@@ -61,42 +99,6 @@ type SGroup struct {
 	worker           *Worker
 	coreID           int
 	mutex            sync.Mutex
-}
-
-var PCIeMappings = []string{
-	"5e:02.0",
-	"5e:02.1",
-	"5e:02.2",
-	"5e:02.3",
-	"5e:02.4",
-	"5e:02.5",
-	"5e:02.6",
-	"5e:02.7",
-	"5e:03.0",
-	"5e:03.1",
-	"5e:03.2",
-	"5e:03.3",
-	"5e:03.4",
-	"5e:03.5",
-	"5e:03.6",
-}
-
-var dmacMappings = []string{
-	"00:00:00:00:00:01",
-	"00:00:00:00:00:02",
-	"00:00:00:00:00:03",
-	"00:00:00:00:00:04",
-	"00:00:00:00:00:05",
-	"00:00:00:00:00:06",
-	"00:00:00:00:00:07",
-	"00:00:00:00:00:08",
-	"00:00:00:00:00:09",
-	"00:00:00:00:00:10",
-	"00:00:00:00:00:11",
-	"00:00:00:00:00:12",
-	"00:00:00:00:00:13",
-	"00:00:00:00:00:14",
-	"00:00:00:00:00:15",
 }
 
 func newSGroup(w *Worker, pcieIdx int) *SGroup {
@@ -155,7 +157,7 @@ func (sg *SGroup) String() string {
 		}
 	}
 	info += fmt.Sprintf("]\n")
-	info += fmt.Sprintf("    Info: id=%d, pcie=%s, core=%d\n", sg.groupID, PCIeMappings[sg.pcieIdx], sg.coreID)
+	info += fmt.Sprintf("    Info: id=%d, pcie=%s, core=%d\n", sg.groupID, sg.worker.pcie[sg.pcieIdx], sg.coreID)
 	info += fmt.Sprintf("    Status: rdy=%v, active=%v, sched=%v\n", sg.isReady, sg.isActive, sg.isSched)
 	info += fmt.Sprintf("    Performance: cycles=%d, batch=(size=%d, cnt=%d), (q=%d, qload=%d), (pps=%d kpps, pload=%d)", sg.sumCycles, sg.batchSize, sg.batchCount, sg.incQueueLength, qLoad, sg.pktRateKpps, pLoad)
 
