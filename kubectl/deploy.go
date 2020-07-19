@@ -12,7 +12,10 @@ import (
 
 // Defines all constants.
 const kDockerhubUser string = "ch8728847"
-const kClusterMasterNode string = "128.105.145.125:10515"
+const kNFImage string = "nf:compatible"
+const kCoopSchedImage string = "coopsched:latest"
+const kClusterMasterNodeIP string = "128.105.145.58"
+const kClusterMasterNodePort string = "10515"
 
 // All kinds of possible NFs.
 var moduleNameMappings = map[string]string{
@@ -81,7 +84,7 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string, funcType stri
 									},
 								},
 								"name":            funcType,
-								"image":           kDockerhubUser + "/nf:latest",
+								"image":           kDockerhubUser + "/" + kNFImage,
 								"imagePullPolicy": "IfNotPresent",
 								"ports": []map[string]interface{}{
 									{
@@ -104,8 +107,8 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string, funcType stri
 									"--device=" + pcie,
 									"--vport_inc_idx=" + vPortInc,
 									"--vport_out_idx=" + vPortOut,
-									"--faas_grpc_server=" + kClusterMasterNode,
-									"--monitor_grpc_server" + kClusterMasterNode,
+									"--faas_grpc_server=" + kClusterMasterNodeIP + kClusterMasterNodePort,
+									"--monitor_grpc_server=" + kClusterMasterNodeIP + kClusterMasterNodePort,
 								},
 								"volumeMounts": []map[string]interface{}{
 									{ // volume 0
@@ -252,7 +255,7 @@ func (k8s *KubeController) makeSchedDeploymentSpec(nodeName string, hostPort int
 									},
 								},
 								"name":            "sched",
-								"image":           kDockerhubUser + "/coopsched:latest",
+								"image":           kDockerhubUser + "/" + kCoopSchedImage,
 								"imagePullPolicy": "IfNotPresent",
 								"ports": []map[string]interface{}{
 									{
