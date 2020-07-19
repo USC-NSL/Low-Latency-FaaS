@@ -28,7 +28,7 @@ func usage() {
 }
 
 func main() {
-	clusterInfo, err := controller.ParseClusterInfo("/home/jfwang/Low-Latency-FaaS/example_cluster.json")
+	clusterInfo, err := controller.ParseClusterInfo("./example_cluster.json")
 	if err != nil {
 		glog.Errorf("Failed to read the cluster info. %v", err)
 	}

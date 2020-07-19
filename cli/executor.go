@@ -139,11 +139,23 @@ func (e *Executor) Execute(s string) {
 		user := words[1]
 		e.FaaSController.ActivateDAG(user)
 	} else if words[0] == "exp" {
-		user := "a"
+		user := "exp-a"
+		nf1 := e.FaaSController.AddDummyNF(user, "bypass")
+		nf2 := e.FaaSController.AddDummyNF(user, "acl")
+		e.FaaSController.ConnectNFs(user, nf1, nf2)
+
+		/*user := "exp-b"
 		nf1 := e.FaaSController.AddDummyNF(user, "acl")
 		nf2 := e.FaaSController.AddDummyNF(user, "filter")
-
+		nf2 := e.FaaSController.AddDummyNF(user, "chacha")
 		e.FaaSController.ConnectNFs(user, nf1, nf2)
+		e.FaaSController.ConnectNFs(user, nf2, nf3)*/
+
+		/*user := "exp-c"
+		nf1 := e.FaaSController.AddDummyNF(user, "acl")
+		nf2 := e.FaaSController.AddDummyNF(user, "nat")
+		e.FaaSController.ConnectNFs(user, nf1, nf2)*/
+
 		e.FaaSController.ActivateDAG(user)
 	} else if words[0] == "cycle" && len(words) >= 4 {
 		nodeName := words[1]
