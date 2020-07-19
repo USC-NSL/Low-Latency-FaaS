@@ -19,8 +19,8 @@ import (
 // NIC MAC address.
 // TODO: Complete the reasons for returning errors.
 func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
-	srcPort uint32, dstPort uint32, proto uint32) (string, error) {
-	//return "00:00:00:00:00:01", nil
+	srcPort uint32, dstPort uint32, proto uint32) (uint32, string, error) {
+	//return 0, "00:00:00:00:00:01", nil
 	var dag *DAG = nil
 	for _, d := range c.dags {
 		if d.Match(srcIP, dstIP, srcPort, dstPort, proto) {
@@ -32,14 +32,14 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 	// The flow does not match any activated DAGs. Just ignore it.
 	if dag == nil || (!dag.isActive) {
 		glog.Infof("This new flow does not match any DAG.")
-		return "none", nil
+		return 0, "none", errors.New(fmt.Sprintf("unknown flowlet"))
 	}
 
 	sg := dag.findAvailableSGroupHighLoadFirst()
 	// Picks an active SGroup |sg| and assigns the flow to it.
 	if sg != nil {
 		//glog.Infof("SGroup[%d], mac=%s, load=%d", sg.ID(), DefaultDstMACs[sg.pcieIdx], sg.GetPktLoad())
-		return DefaultDstMACs[sg.pcieIdx], nil
+		return sg.worker.switchPort, DefaultDstMACs[sg.pcieIdx], nil
 	}
 
 	// No active SGroups. Triggers a scale-up event.
@@ -50,13 +50,24 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 	// get queued up at the NIC queue for a while.
 	if sg = c.getFreeSGroup(); sg != nil {
 		go sg.worker.createSGroup(sg, dag)
-		return DefaultDstMACs[sg.pcieIdx], nil
+		return sg.worker.switchPort, DefaultDstMACs[sg.pcieIdx], nil
 	}
 
 	// All active SGroups are running heavily. No free SGroups
 	// are available. Just drop the packet. (Ideally, we should
 	// never reach here if the cluster has enough resources.)
-	return "none", errors.New(fmt.Sprintf("No enough resources"))
+	return 0, "none", errors.New(fmt.Sprintf("No enough resources"))
+}
+
+// Finds and returns a free |sGroup| in the cluster. Returns nil
+// if no free sgroup is found.
+func (c *FaaSController) getFreeSGroup() *SGroup {
+	for _, worker := range c.workers {
+		if sg := worker.getFreeSGroup(); sg != nil {
+			return sg
+		}
+	}
+	return nil
 }
 
 // Selects an active |SGroup| for the logical NF DAG |g|. Picks
@@ -103,17 +114,6 @@ func (g *DAG) findAvailableSGroup() *SGroup {
 	}
 
 	return selected
-}
-
-// Finds and returns a free |sGroup| in the cluster. Returns nil
-// if no free sgroup is found.
-func (c *FaaSController) getFreeSGroup() *SGroup {
-	for _, worker := range c.workers {
-		if sg := worker.getFreeSGroup(); sg != nil {
-			return sg
-		}
-	}
-	return nil
 }
 
 // Selects an active |SGroup| for the logical NF DAG |g|. Picks

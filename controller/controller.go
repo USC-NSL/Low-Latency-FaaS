@@ -40,8 +40,8 @@ func NewFaaSController(isTest bool, cluster *Cluster) *FaaSController {
 		ip := cluster.Workers[i].IP
 		coreNum := cluster.Workers[i].Cores - 1
 		pcie := cluster.Workers[i].PCIe
-		//switchPort := cluster.Workers[i].SwitchPort
-		c.createWorker(name, ip, 1, coreNum, pcie)
+		switchPort := uint32(cluster.Workers[i].SwitchPort)
+		c.createWorker(name, ip, 1, coreNum, pcie, switchPort)
 	}
 
 	// If we are running tests, skip initializing all free SGroups because tests
@@ -58,12 +58,12 @@ func NewFaaSController(isTest bool, cluster *Cluster) *FaaSController {
 }
 
 func (c *FaaSController) createWorker(name string, ip string,
-	coreNumOffset int, coreCount int, pcie []string) {
+	coreNumOffset int, coreCount int, pcie []string, switchPort uint32) {
 	if _, exists := c.workers[name]; exists {
 		return
 	}
 
-	c.workers[name] = NewWorker(name, ip, coreNumOffset, coreCount, pcie)
+	c.workers[name] = NewWorker(name, ip, coreNumOffset, coreCount, pcie, switchPort)
 }
 
 func (c *FaaSController) getWorker(nodeName string) *Worker {

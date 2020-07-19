@@ -112,10 +112,10 @@ func (e *Executor) Execute(s string) {
 		dstIp := words[3]
 		dstPort, _ := strconv.Atoi(words[4])
 		protocol, _ := strconv.Atoi(words[5])
-		if dmac, err := e.FaaSController.UpdateFlow(srcIp, dstIp, uint32(srcPort), uint32(dstPort), uint32(protocol)); err != nil {
+		if switchPort, dmac, err := e.FaaSController.UpdateFlow(srcIp, dstIp, uint32(srcPort), uint32(dstPort), uint32(protocol)); err != nil {
 			fmt.Printf("Failed to update flow: %s!\n", err.Error())
 		} else {
-			fmt.Printf("Return dmac = %s.", dmac)
+			fmt.Printf("Return switch port = %d, dmac = %s.", switchPort, dmac)
 		}
 	} else if words[0] == "deploy" && len(words) >= 3 {
 		user := words[1]

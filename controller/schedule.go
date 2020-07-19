@@ -26,6 +26,19 @@ func (w *Worker) ScheduleLoop() {
 	}
 }
 
+// Returns an idle CPU core |core| in |w.cores|. The CPU core does not
+// run any NF chains. This function is only called by other per-worker
+// functions. So, no lock as other functions must lock first.
+func (w *Worker) getIdleCore() *Core {
+	for _, core := range w.cores {
+		if len(core.sGroups) == 0 {
+			return core
+		}
+	}
+
+	return nil
+}
+
 // The per-worker NF thread scheduler.
 // This function monitors traffic loads for all deployed SGroups.
 // It packs SGroups into a minimum number of CPU cores.
@@ -47,6 +60,18 @@ func (w *Worker) scheduleOnce() {
 		} else if !sg.IsActive() {
 			// Detaches |sg| if it is still being scheduled.
 			if sg.IsSched() {
+				if sg.GetCoreID() != 1 {
+					if err := sg.attachSGroup(1); err != nil {
+						glog.Errorf("Failed to attach SGroup[%d] to Core #1. %v", sg.ID(), err)
+						continue
+					}
+
+					// |sg| should be attached successfully.
+					if sg.GetCoreID() != 1 || !sg.IsSched() {
+						glog.Errorf("SGroup[%d] was Attached to Core #1 but not running on it!", sg.ID())
+					}
+				}
+
 				if err := sg.detachSGroup(); err != nil {
 					glog.Errorf("Failed to detach SGroup[%d]. %v", sg.ID(), err)
 					continue
@@ -65,7 +90,7 @@ func (w *Worker) scheduleOnce() {
 
 		if load+sgLoad < 80 {
 			load = load + sgLoad
-		} else if coreID < 7 {
+		} else if coreID < len(w.cores) {
 			coreID += 1
 			load = sgLoad
 		} else {
@@ -131,7 +156,7 @@ func (w *Worker) advancedFitScheduleOnce() {
 
 		if load+sgLoad < 80 {
 			load = load + sgLoad
-		} else if coreID < 7 {
+		} else if coreID < len(w.cores) {
 			coreID += 1
 			load = sgLoad
 		} else {
@@ -143,6 +168,61 @@ func (w *Worker) advancedFitScheduleOnce() {
 		// Note: be careful about deadlocks.
 		if err := sg.attachSGroup(coreID); err != nil {
 			glog.Errorf("Failed to attach SGroup[%d] to Core[%d]", sg.ID(), coreID)
+		}
+	}
+}
+
+func (w *Worker) noPackingScheduleOnce() {
+	// Stops all updates on Worker |w| temporally.
+	w.sgMutex.Lock()
+	defer w.sgMutex.Unlock()
+
+	for _, sg := range w.sgroups {
+		if !sg.IsReady() {
+			// Skips if |sg| is not ready for scheduling.
+			continue
+		} else if !sg.IsActive() {
+			// Detaches |sg| if it is still being scheduled.
+			if sg.IsSched() {
+				if sg.GetCoreID() != 1 {
+					if err := sg.attachSGroup(1); err != nil {
+						glog.Errorf("Failed to attach SGroup[%d] to Core #1. %v", sg.ID(), err)
+						continue
+					}
+
+					// |sg| should be attached successfully.
+					if sg.GetCoreID() != 1 || !sg.IsSched() {
+						glog.Errorf("SGroup[%d] was Attached to Core #1 but not running on it!", sg.ID())
+					}
+				}
+
+				if err := sg.detachSGroup(); err != nil {
+					glog.Errorf("Failed to detach SGroup[%d]. %v", sg.ID(), err)
+					continue
+				}
+
+				// |sg| should be detached successfully.
+				if sg.IsSched() {
+					glog.Errorf("SGroup[%d] was Detached but still running!", sg.ID())
+				}
+			}
+
+			continue
+		}
+
+		// |sg| is ready and active. Schedule the sg with one idle CPU core.
+		if !sg.IsSched() {
+			core := w.getIdleCore()
+			if core == nil {
+				glog.Errorf("Worker[%s] runs out of cores", w.name)
+				continue
+			}
+
+			// Enforce scheduling.
+			// Note: be careful about deadlocks.
+			if err := sg.attachSGroup(core.coreID); err != nil {
+				glog.Errorf("Failed to attach SGroup[%d] to Core[%d]", sg.ID(), core.coreID)
+			}
 		}
 	}
 }

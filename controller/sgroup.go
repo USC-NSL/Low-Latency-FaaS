@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"flag"
 	"fmt"
 	"math"
 	"sync"
@@ -52,6 +53,14 @@ var DefaultDstMACs = []string{
 	"00:00:00:00:00:13",
 	"00:00:00:00:00:14",
 	"00:00:00:00:00:15",
+}
+
+var SupportQueueLength bool
+
+func init() {
+	flag.BoolVar(&SupportQueueLength, "SupportqueueLength", false, "Whether the PMD supports rte_eth_rx_queue_count function")
+	flag.Parse()
+	fmt.Printf("NIC supports queue count: %v\n", SupportQueueLength)
 }
 
 // The abstraction of minimal scheduling unit at each CPU core.
@@ -327,11 +336,13 @@ func (sg *SGroup) UpdateTrafficInfo() {
 	}
 
 	if sg.isActive {
-		if sg.incQueueLength == 0 && sg.pktRateKpps == 0 {
-			sg.isActive = false
+		if sg.pktRateKpps == 0 {
+			if !SupportQueueLength || (SupportQueueLength && sg.incQueueLength == 0) {
+				sg.isActive = false
+			}
 		}
 	} else {
-		if sg.incQueueLength > 0 {
+		if SupportQueueLength && sg.incQueueLength > 0 {
 			sg.isActive = true
 		}
 	}
