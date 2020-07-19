@@ -58,9 +58,9 @@ type Worker struct {
 func NewWorker(name string, ip string, coreNumOffset int, coreNum int, pcie []string) *Worker {
 	perWorkerPCIeDevices := make([]string, 0)
 	if len(pcie) > 0 {
-		copy(perWorkerPCIeDevices, pcie)
+		perWorkerPCIeDevices = pcie
 	} else {
-		copy(perWorkerPCIeDevices, DefaultPCIeDevices)
+		perWorkerPCIeDevices = DefaultPCIeDevices
 	}
 
 	// Ports taken by instances are between [50052, 51051]
