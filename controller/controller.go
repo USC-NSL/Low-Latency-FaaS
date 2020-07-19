@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os/exec"
 	"strings"
+	"sync"
 
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
 	glog "github.com/golang/glog"
@@ -47,11 +48,19 @@ func NewFaaSController(isTest bool, cluster *Cluster) *FaaSController {
 	// If we are running tests, skip initializing all free SGroups because tests
 	// are expected to create their free SGroups.
 	if !isTest {
-		// Initializes all hugepages and NIC queues.
+		// Initializes per-worker hugepages, NIC queues, and schedulers.
+		var wg sync.WaitGroup
+		wg.Add(len(c.workers))
+
 		for _, w := range c.workers {
-			w.createAllFreeSGroups()
-			w.createSched()
+			go func(w *Worker) {
+				w.createAllFreeSGroups()
+				w.createSched()
+				wg.Done()
+			}(w)
 		}
+
+		wg.Wait()
 	}
 
 	return c
@@ -73,19 +82,39 @@ func (c *FaaSController) getWorker(nodeName string) *Worker {
 	return c.workers[nodeName]
 }
 
-// This function cleans up the FaaSController |c|.
-// Cleans up all associated FaaS worker nodes.
+// This function cleans up the FaaSController |c|. That includes:
+// * Clean up all associated FaaS workers.
 func (c *FaaSController) Close() error {
-	errmsg := []string{}
+	allErr := []string{}
+	errmsg := make(chan string)
+	wgDone := make(chan bool)
+
+	var wg sync.WaitGroup
+	wg.Add(len(c.workers))
+
+	go func() {
+		wg.Wait()
+		close(wgDone)
+	}()
 
 	for _, w := range c.workers {
-		if err := w.Close(); err != nil {
-			errmsg = append(errmsg, fmt.Sprintf("worker[%s] didn't close. Reason: %v\n", w.name, err))
-		}
+		go func(w *Worker) {
+			if err := w.Close(); err != nil {
+				errmsg <- fmt.Sprintf("worker[%s] failed to close. Reason: %v\n", w.name, err)
+			}
+			wg.Done()
+		}(w)
 	}
 
-	if len(errmsg) > 0 {
-		return errors.New(strings.Join(errmsg, ""))
+	select {
+	case <-wgDone:
+		break
+	case err := <-errmsg:
+		allErr = append(allErr, err)
+	}
+
+	if len(allErr) > 0 {
+		return errors.New(strings.Join(allErr, ""))
 	}
 
 	// Succeed.

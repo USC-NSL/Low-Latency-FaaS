@@ -20,7 +20,7 @@ func (w *Worker) ScheduleLoop() {
 			w.wg.Done()
 			return
 		default:
-			w.advancedFitScheduleOnce()
+			w.noPackingScheduleOnce()
 			time.Sleep(500 * time.Millisecond)
 		}
 	}

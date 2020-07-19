@@ -107,8 +107,8 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string, funcType stri
 									"--device=" + pcie,
 									"--vport_inc_idx=" + vPortInc,
 									"--vport_out_idx=" + vPortOut,
-									"--faas_grpc_server=" + kClusterMasterNodeIP + kClusterMasterNodePort,
-									"--monitor_grpc_server=" + kClusterMasterNodeIP + kClusterMasterNodePort,
+									"--faas_grpc_server=" + kClusterMasterNodeIP + ":" + kClusterMasterNodePort,
+									"--monitor_grpc_server=" + kClusterMasterNodeIP + ":" + kClusterMasterNodePort,
 								},
 								"volumeMounts": []map[string]interface{}{
 									{ // volume 0

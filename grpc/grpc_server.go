@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"context"
-	"fmt"
 	"net"
 
 	pb "github.com/USC-NSL/Low-Latency-FaaS/proto"
@@ -30,7 +29,7 @@ type GRPCServer struct {
 func NewGRPCServer(c Controller) {
 	listen, err := net.Listen("tcp", kGrpcPort)
 	if err != nil {
-		fmt.Printf("Failed to listen: %v\n", err)
+		glog.Errorf("Failed to listen: %v\n", err)
 		return
 	}
 
@@ -39,7 +38,9 @@ func NewGRPCServer(c Controller) {
 
 	if err := s.Serve(listen); err != nil {
 		glog.Errorf("Failed to start FaaS Server: %v\n", err)
+		return
 	}
+	glog.Infof("FaaS Controller listens at %s", kGrpcPort)
 }
 
 // This function is called when a new flow arrives at the ToR switch.

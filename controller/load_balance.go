@@ -39,6 +39,10 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 	// Picks an active SGroup |sg| and assigns the flow to it.
 	if sg != nil {
 		//glog.Infof("SGroup[%d], mac=%s, load=%d", sg.ID(), DefaultDstMACs[sg.pcieIdx], sg.GetPktLoad())
+		// Turns |sg| to be active if sg is not active now.
+		if !sg.IsActive() {
+			sg.SetActive()
+		}
 		return sg.worker.switchPort, DefaultDstMACs[sg.pcieIdx], nil
 	}
 
