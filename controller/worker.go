@@ -42,6 +42,7 @@ type Worker struct {
 	name             string
 	ip               string
 	pcie             []string
+	switchPort       uint32
 	sched            *Instance
 	cores            map[int]*Core
 	sgroups          SGroupSlice
@@ -55,12 +56,12 @@ type Worker struct {
 	sgMutex          sync.Mutex
 }
 
-func NewWorker(name string, ip string, coreNumOffset int, coreNum int, pcie []string) *Worker {
+func NewWorker(name string, ip string, coreNumOffset int, coreNum int, pcie []string, switchPortNum uint32) *Worker {
 	perWorkerPCIeDevices := make([]string, 0)
 	if len(pcie) > 0 {
-		copy(perWorkerPCIeDevices, pcie)
+		perWorkerPCIeDevices = pcie
 	} else {
-		copy(perWorkerPCIeDevices, DefaultPCIeDevices)
+		perWorkerPCIeDevices = DefaultPCIeDevices
 	}
 
 	// Ports taken by instances are between [50052, 51051]
@@ -68,6 +69,7 @@ func NewWorker(name string, ip string, coreNumOffset int, coreNum int, pcie []st
 		name:             name,
 		ip:               ip,
 		pcie:             perWorkerPCIeDevices,
+		switchPort:       uint32(switchPortNum),
 		cores:            make(map[int]*Core),
 		sgroups:          make([]*SGroup, 0),
 		freeSGroups:      make([]*SGroup, 0),

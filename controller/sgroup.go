@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"flag"
 	"fmt"
 	"math"
 	"sync"
@@ -14,6 +15,8 @@ const (
 	STARTUP_CORE_ID              = 1
 	INVALID_CORE_ID              = -1
 	CONTEXT_SWITCH_CYCLE_COST_PP = 5100
+	// A SGroup turns idel if it has been idel for at least 10 traffic samples.
+	MIN_IDLE_DURATION = 10
 )
 
 // These are default PCIe devices in a host. Each of these devices has its
@@ -54,6 +57,14 @@ var DefaultDstMACs = []string{
 	"00:00:00:00:00:15",
 }
 
+var SupportQueueLength bool
+
+func init() {
+	flag.BoolVar(&SupportQueueLength, "SupportqueueLength", false, "Whether the PMD supports rte_eth_rx_queue_count function")
+	flag.Parse()
+	fmt.Printf("NIC supports queue count: %v\n", SupportQueueLength)
+}
+
 // The abstraction of minimal scheduling unit at each CPU core.
 // |manager| manages NIC queues, memory buffers.
 // |groupID| is the unique ID of the sGroup on a worker.
@@ -85,6 +96,7 @@ type SGroup struct {
 	isReady          bool
 	isActive         bool
 	isSched          bool
+	idleSampleCnt    int
 	instances        []*Instance
 	tids             []int32
 	sumCycles        int
@@ -109,6 +121,7 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 		isReady:          false,
 		isActive:         false,
 		isSched:          false,
+		idleSampleCnt:    0,
 		instances:        make([]*Instance, 0),
 		tids:             make([]int32, 0),
 		sumCycles:        0,
@@ -299,6 +312,21 @@ func (sg *SGroup) IsSched() bool {
 	return sg.isSched
 }
 
+func (sg *SGroup) SetActive() {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	sg.isActive = true
+	sg.idleSampleCnt = 0
+}
+
+func (sg *SGroup) SetSched(isSched bool) {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	sg.isSched = isSched
+}
+
 // TODO (Jianfeng): trigger extra scaling operations.
 // This function is called to update traffic-related parameters.
 // * Updates the packet rate and queue length for SGroup |sg|.
@@ -327,11 +355,16 @@ func (sg *SGroup) UpdateTrafficInfo() {
 	}
 
 	if sg.isActive {
-		if sg.incQueueLength == 0 && sg.pktRateKpps == 0 {
-			sg.isActive = false
+		if sg.pktRateKpps == 0 {
+			if !SupportQueueLength || (SupportQueueLength && sg.incQueueLength == 0) {
+				sg.idleSampleCnt += 1
+				if sg.isActive && sg.idleSampleCnt >= MIN_IDLE_DURATION {
+					sg.isActive = false
+				}
+			}
 		}
 	} else {
-		if sg.incQueueLength > 0 {
+		if SupportQueueLength && sg.incQueueLength > 0 {
 			sg.isActive = true
 		}
 	}
@@ -376,6 +409,9 @@ func (sg *SGroup) GetPktLoad() int {
 	// CPU load = 100 * (packetRate * sumCycles) / (CPU Frequency)
 	// i.e. 100 * (sg.pktRateKpps * 1000 * sg.sumCycles) / (1700 * 1000,000)
 	// return (sg.pktRateKpps * sg.sumCycles) / 1700 * 10
+	if sg.maxRateKpps == 0 {
+		return 0
+	}
 	return 100 * sg.pktRateKpps / sg.maxRateKpps
 }
 
@@ -384,13 +420,6 @@ func (sg *SGroup) SetCoreID(coreID int) {
 	defer sg.mutex.Unlock()
 
 	sg.coreID = coreID
-}
-
-func (sg *SGroup) SetSched(isSched bool) {
-	sg.mutex.Lock()
-	defer sg.mutex.Unlock()
-
-	sg.isSched = isSched
 }
 
 func (sg *SGroup) GetCoreID() int {

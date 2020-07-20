@@ -112,10 +112,10 @@ func (e *Executor) Execute(s string) {
 		dstIp := words[3]
 		dstPort, _ := strconv.Atoi(words[4])
 		protocol, _ := strconv.Atoi(words[5])
-		if dmac, err := e.FaaSController.UpdateFlow(srcIp, dstIp, uint32(srcPort), uint32(dstPort), uint32(protocol)); err != nil {
+		if switchPort, dmac, err := e.FaaSController.UpdateFlow(srcIp, dstIp, uint32(srcPort), uint32(dstPort), uint32(protocol)); err != nil {
 			fmt.Printf("Failed to update flow: %s!\n", err.Error())
 		} else {
-			fmt.Printf("Return dmac = %s.", dmac)
+			fmt.Printf("Return switch port = %d, dmac = %s.", switchPort, dmac)
 		}
 	} else if words[0] == "deploy" && len(words) >= 3 {
 		user := words[1]
@@ -139,11 +139,23 @@ func (e *Executor) Execute(s string) {
 		user := words[1]
 		e.FaaSController.ActivateDAG(user)
 	} else if words[0] == "exp" {
-		user := "a"
+		user := "exp-a"
+		nf1 := e.FaaSController.AddDummyNF(user, "bypass")
+		nf2 := e.FaaSController.AddDummyNF(user, "acl")
+		e.FaaSController.ConnectNFs(user, nf1, nf2)
+
+		/*user := "exp-b"
 		nf1 := e.FaaSController.AddDummyNF(user, "acl")
 		nf2 := e.FaaSController.AddDummyNF(user, "filter")
-
+		nf2 := e.FaaSController.AddDummyNF(user, "chacha")
 		e.FaaSController.ConnectNFs(user, nf1, nf2)
+		e.FaaSController.ConnectNFs(user, nf2, nf3)*/
+
+		/*user := "exp-c"
+		nf1 := e.FaaSController.AddDummyNF(user, "acl")
+		nf2 := e.FaaSController.AddDummyNF(user, "nat")
+		e.FaaSController.ConnectNFs(user, nf1, nf2)*/
+
 		e.FaaSController.ActivateDAG(user)
 	} else if words[0] == "cycle" && len(words) >= 4 {
 		nodeName := words[1]

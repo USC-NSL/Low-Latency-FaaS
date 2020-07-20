@@ -7,6 +7,9 @@ Low-Latency-FaaS
 *.dylib
 *.pyc
 
+# Configuration files
+sftp-config.json
+
 # Intermediate files.
 go.sum
 *.pb.go

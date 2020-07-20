@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"context"
-	"fmt"
 	"net"
 
 	pb "github.com/USC-NSL/Low-Latency-FaaS/proto"
@@ -16,7 +15,7 @@ const (
 )
 
 type Controller interface {
-	UpdateFlow(srcIP string, dstIP string, srcPort uint32, dstPort uint32, proto uint32) (string, error)
+	UpdateFlow(srcIP string, dstIP string, srcPort uint32, dstPort uint32, proto uint32) (uint32, string, error)
 
 	InstanceSetUp(nodeName string, port int, tid int) error
 
@@ -30,7 +29,7 @@ type GRPCServer struct {
 func NewGRPCServer(c Controller) {
 	listen, err := net.Listen("tcp", kGrpcPort)
 	if err != nil {
-		fmt.Printf("Failed to listen: %v\n", err)
+		glog.Errorf("Failed to listen: %v\n", err)
 		return
 	}
 
@@ -39,23 +38,26 @@ func NewGRPCServer(c Controller) {
 
 	if err := s.Serve(listen); err != nil {
 		glog.Errorf("Failed to start FaaS Server: %v\n", err)
+		return
 	}
+	glog.Infof("FaaS Controller listens at %s", kGrpcPort)
 }
 
 // This function is called when a new flow arrives at the ToR switch.
 // |flowInfo| is the flow's 5-tuple. FaaSController assigns a active
 // NF chain to process this flow.
 func (s *GRPCServer) UpdateFlow(context context.Context, flowInfo *pb.FlowInfo) (*pb.FlowTableEntry, error) {
-	dmac, err := s.FaaSController.UpdateFlow(flowInfo.Ipv4Src, flowInfo.Ipv4Dst,
+	switchPort, dmac, err := s.FaaSController.UpdateFlow(flowInfo.Ipv4Src, flowInfo.Ipv4Dst,
 		flowInfo.TcpSport, flowInfo.TcpDport, flowInfo.Ipv4Protocol)
 
 	if err != nil {
 		glog.Errorf("Failed to serve flow: %v", err)
-		// TODO(Jianfeng): handle errors.
+		res := &pb.FlowTableEntry{SwitchPort: 0, Dmac: "none"}
+		return res, err
 	}
 
-	// TODO(Jianfeng): assign a switch port number to each worker.
-	res := &pb.FlowTableEntry{SwitchPort: 20, Dmac: dmac}
+	// Insert a flow rule to the ingress switch to handle subsequent packets.
+	res := &pb.FlowTableEntry{SwitchPort: switchPort, Dmac: dmac}
 	return res, err
 }
 
