@@ -158,8 +158,8 @@ func (sg *SGroup) String() string {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
-	qLoad := 100 * sg.incQueueLength / sg.incQueueCapacity
-	pLoad := 100 * sg.pktRateKpps / sg.maxRateKpps
+	qLoad := sg.getQLoad()
+	pLoad := sg.getPktLoad()
 
 	info := "["
 	for i, ins := range sg.instances {
@@ -398,21 +398,12 @@ func (sg *SGroup) GetPktRate() int {
 	return sg.pktRateKpps
 }
 
-// Returns the current packet rate devided by the estimated max
-// packet rate (in percentage value).
-// Note: |sg.maxRateKpps| has considered the context switching overhead.
+
 func (sg *SGroup) GetPktLoad() int {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
-	// The old packet load: (no context switching overhead)
-	// CPU load = 100 * (packetRate * sumCycles) / (CPU Frequency)
-	// i.e. 100 * (sg.pktRateKpps * 1000 * sg.sumCycles) / (1700 * 1000,000)
-	// return (sg.pktRateKpps * sg.sumCycles) / 1700 * 10
-	if sg.maxRateKpps == 0 {
-		return 0
-	}
-	return 100 * sg.pktRateKpps / sg.maxRateKpps
+	return sg.getPktLoad()
 }
 
 func (sg *SGroup) SetCoreID(coreID int) {
@@ -427,6 +418,27 @@ func (sg *SGroup) GetCoreID() int {
 	defer sg.mutex.Unlock()
 
 	return sg.coreID
+}
+
+func (sg *SGroup) getQLoad() int {
+	if sg.incQueueCapacity <= 0 {
+		return 0
+	}
+	return 100 * sg.incQueueLength / sg.incQueueCapacity
+}
+
+// Returns the current packet rate devided by the estimated max
+// packet rate (in percentage value).
+// Note: |sg.maxRateKpps| has considered the context switching overhead.
+// This is the old packet load formula: (no context switching overhead)
+// CPU load = 100 * (packetRate * sumCycles) / (CPU Frequency)
+// i.e. 100 * (sg.pktRateKpps * 1000 * sg.sumCycles) / (1700 * 1000,000)
+// return (sg.pktRateKpps * sg.sumCycles) / 1700 * 10
+func (sg *SGroup) getPktLoad() int {
+	if sg.maxRateKpps == 0 {
+		return 0
+	}
+	return 100 * sg.pktRateKpps / sg.maxRateKpps
 }
 
 // Migrates/Schedules a SGroup with |groupId| to core |coreId|.

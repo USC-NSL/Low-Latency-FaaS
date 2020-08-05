@@ -56,7 +56,7 @@ supported_ofctl = {
 
 # Todo(Jianfeng): remove these hardcoded IPs.
 kFaaSServerAddress = "128.105.145.93:10515"
-kDetailedLogs = False
+kDetailedLogs = True
 
 
 ryu_loggers = logging.Logger.manager.loggerDict
@@ -209,7 +209,7 @@ class FaaSSwitchController(app_manager.RyuApp):
         DLOG.info("Total %d flows", len(body))
         if kDetailedLogs:
             for flow in body:
-                DLOG.info('%17s %17s %8d %8d',
+                DLOG.info('match:%17s actions:%17s pkts:%8d bytes:%8d',
                           str(flow["match"]), str(flow["actions"]), 
                           flow["packet_count"], flow["byte_count"])
 
@@ -296,21 +296,26 @@ class FaaSSwitchController(app_manager.RyuApp):
         # Deletes existing flows.
         self.delete_all_flows(datapath)
 
-        # Bypass the MAC-IP table for ingress traffic.
-        match_1 = parser.OFPMatch(in_port=63)
-        actions_1 = []
-        self.add_flow(datapath, 0, match_1, actions_1, 100)
+        # The MAC-IP table (table ID: 100)
+        # The default rule that forwards all packets to the next table.
+        match_0 = parser.OFPMatch()
+        actions_0 = []
+        self.add_flow(datapath, 0, match_0, actions_0, 100)
+
+        # The extension table (table ID: 200)
+        # Installs the table-miss flow entry for ingress unseen traffic.
+        match_1 = parser.OFPMatch(in_port=21)
+        actions_1 = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, ofproto.OFPCML_NO_BUFFER)]
+        self.add_flow(datapath, 0, match_1, actions_1, 200)
 
         # Installs the egress rules for egress traffic.
-        match_2 = parser.OFPMatch(eth_dst="00:15:4d:12:2b:f4")
-        actions_2 = [parser.OFPActionOutput(63)]
-        self.add_flow(datapath, 1, match_2, actions_2, 100)
+        match_2 = parser.OFPMatch(eth_dst="00:15:4d:12:2b:f4", eth_type=ether_types.ETH_TYPE_IP)
+        actions_2 = [parser.OFPActionOutput(21)]
+        self.add_flow(datapath, 3, match_2, actions_2, 200)
 
-        # Installs the table-miss flow entry for ingress unseen traffic.
-        match_3 = parser.OFPMatch(in_port=63)
-        actions_3 = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
-                                          ofproto.OFPCML_NO_BUFFER)]
-        self.add_flow(datapath, 0, match_3, actions_3, 200)
+        match_0 = parser.OFPMatch()
+        actions_0 = [parser.OFPActionOutput(21)]
+        self.add_flow(datapath, 3, match_0, actions_0, 100)
 
         """
         # Installs rules for testing.
@@ -329,6 +334,7 @@ class FaaSSwitchController(app_manager.RyuApp):
     def add_flow(self, datapath, priority, match, actions, table_id):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
+        idle_timeout = hard_timeout = 0
 
         # construct the flow instruction
         inst = []
@@ -339,9 +345,13 @@ class FaaSSwitchController(app_manager.RyuApp):
             inst.append(parser.OFPInstructionGotoTable(200))
 
         # construct flow_mod message and send it.
-        mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
+        mod = parser.OFPFlowMod(datapath=datapath, table_id=table_id,
                                 command=ofproto.OFPFC_ADD,
-                                match=match, instructions=inst, table_id=table_id)
+                                idle_timeout=idle_timeout, hard_timeout=hard_timeout,
+                                priority=priority, buffer_id= ofproto.OFP_NO_BUFFER,
+                                out_port=ofproto.OFPP_ANY, out_group=ofproto.OFPG_ANY,
+                                flags=ofproto.OFPFF_SEND_FLOW_REM,
+                                match=match, instructions=inst)
         datapath.send_msg(mod)
 
     def delete_flow(self, datapath, priority, match, actions, table_id):
