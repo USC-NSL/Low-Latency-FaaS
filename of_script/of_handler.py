@@ -16,6 +16,7 @@ import struct
 import copy
 import time
 import collections
+import gflags
 import logging
 from operator import attrgetter
 from ryu.base import app_manager
@@ -54,7 +55,8 @@ supported_ofctl = {
 }
 
 # Todo(Jianfeng): remove these hardcoded IPs.
-kFaaSServerAddress = "204.57.3.169:10515"
+kFaaSServerAddress = "128.105.145.93:10515"
+kDetailedLogs = False
 
 
 ryu_loggers = logging.Logger.manager.loggerDict
@@ -203,10 +205,13 @@ class FaaSSwitchController(app_manager.RyuApp):
 
         datapath = list(flow_stats.keys())[0]
         body = flow_stats[datapath]
-        for flow in body:
-            DLOG.info('%17s %17s %8d %8d',
-                      str(flow["match"]), str(flow["actions"]), 
-                      flow["packet_count"], flow["byte_count"])
+
+        DLOG.info("Total %d flows", len(body))
+        if kDetailedLogs:
+            for flow in body:
+                DLOG.info('%17s %17s %8d %8d',
+                          str(flow["match"]), str(flow["actions"]), 
+                          flow["packet_count"], flow["byte_count"])
 
     def _print_formatted_port_stats(self, port_stats):
         DLOG.info('datapath           port_no '
@@ -291,21 +296,21 @@ class FaaSSwitchController(app_manager.RyuApp):
         # Deletes existing flows.
         self.delete_all_flows(datapath)
 
-        # Adds default rules.
-        match = parser.OFPMatch()
-        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
-                                          ofproto.OFPCML_NO_BUFFER)]
-
-        # Bypass the MAC-IP table.
-        match_1 = parser.OFPMatch()
+        # Bypass the MAC-IP table for ingress traffic.
+        match_1 = parser.OFPMatch(in_port=63)
         actions_1 = []
         self.add_flow(datapath, 0, match_1, actions_1, 100)
 
-        # Installs the table-miss flow entry.
-        match_2 = parser.OFPMatch()
-        actions_2 = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
+        # Installs the egress rules for egress traffic.
+        match_2 = parser.OFPMatch(eth_dst="00:15:4d:12:2b:f4")
+        actions_2 = [parser.OFPActionOutput(63)]
+        self.add_flow(datapath, 1, match_2, actions_2, 100)
+
+        # Installs the table-miss flow entry for ingress unseen traffic.
+        match_3 = parser.OFPMatch(in_port=63)
+        actions_3 = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
                                           ofproto.OFPCML_NO_BUFFER)]
-        self.add_flow(datapath, 0, match_2, actions_2, 200)
+        self.add_flow(datapath, 0, match_3, actions_3, 200)
 
         """
         # Installs rules for testing.
@@ -330,7 +335,7 @@ class FaaSSwitchController(app_manager.RyuApp):
         if actions != None and len(actions) > 0:
             inst.append(parser.OFPInstructionActions(
                                 ofproto.OFPIT_APPLY_ACTIONS, actions))
-        if table_id == 100:
+        if table_id == 100 and len(actions) == 0:
             inst.append(parser.OFPInstructionGotoTable(200))
 
         # construct flow_mod message and send it.
@@ -459,10 +464,9 @@ class FaaSSwitchController(app_manager.RyuApp):
             if response.dmac == "none":
                 return
 
+            # OFPActionOutput takes an integer as input.
             select_dmac = response.dmac
             select_port = int(response.switch_port)
-            # Note: OFPActionOutput takes a hex integer as input.
-            select_port = 17
             actions = [parser.OFPActionSetField(eth_dst=select_dmac),
                 parser.OFPActionOutput(select_port)]
             # install a flow to avoid packet_in next time.
