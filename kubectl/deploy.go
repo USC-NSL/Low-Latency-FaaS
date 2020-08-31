@@ -11,11 +11,16 @@ import (
 )
 
 // Defines all constants.
-const kDockerhubUser string = "165749"
-const kNFImage string = "nf:compatible"
-const kCoopSchedImage string = "coopsched:latest"
-const kClusterMasterNodeIP string = "128.105.145.58"
-const kClusterMasterNodePort string = "10515"
+const kDockerhubUser string = "ch8728847"
+const kNFImage string = "nf:debug"
+const kCoopSchedImage string = "coopsched:debug"
+const kFaaSControllerPort string = "10515"
+
+var kFaaSControllerIP string = ""
+
+func SetFaaSControllerIP(ip string) {
+	kFaaSControllerIP = ip
+}
 
 // All kinds of possible NFs.
 var moduleNameMappings = map[string]string{
@@ -35,6 +40,10 @@ var moduleNameMappings = map[string]string{
 // In Kubernetes, the instance is run as a deployment with name "nodeName-funcType-portId".
 func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string, funcType string, hostPort int,
 	pcie string, isPrimary string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) unstructured.Unstructured {
+	if kFaaSControllerIP == "" {
+		glog.Errorf("kubectl isn't aware of FaaS master node's IP. RPCs from containers will fail to reach the master node.")
+	}
+
 	portId := strconv.Itoa(hostPort)
 	vPortInc := strconv.Itoa(vPortIncIdx)
 	vPortOut := strconv.Itoa(vPortOutIdx)
@@ -107,8 +116,8 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string, funcType stri
 									"--device=" + pcie,
 									"--vport_inc_idx=" + vPortInc,
 									"--vport_out_idx=" + vPortOut,
-									"--faas_grpc_server=" + kClusterMasterNodeIP + ":" + kClusterMasterNodePort,
-									"--monitor_grpc_server=" + kClusterMasterNodeIP + ":" + kClusterMasterNodePort,
+									"--faas_grpc_server=" + kFaaSControllerIP + ":" + kFaaSControllerPort,
+									"--monitor_grpc_server=" + kFaaSControllerIP + ":" + kFaaSControllerPort,
 								},
 								"volumeMounts": []map[string]interface{}{
 									{ // volume 0
@@ -267,6 +276,7 @@ func (k8s *KubeController) makeSchedDeploymentSpec(nodeName string, hostPort int
 								},
 								"command": []string{
 									"/app/cooperative_sched",
+									"--cores=16",
 									"--cli=0",
 									"--logtostderr=1",
 								},

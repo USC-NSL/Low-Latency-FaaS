@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
+	kubectl "github.com/USC-NSL/Low-Latency-FaaS/kubectl"
 	glog "github.com/golang/glog"
 )
 
@@ -31,6 +32,8 @@ func NewFaaSController(isTest bool, cluster *Cluster) *FaaSController {
 		dags:     make(map[string]*DAG),
 		masterIP: cluster.Master.IP,
 	}
+
+	kubectl.SetFaaSControllerIP(c.masterIP)
 
 	// Initializes all worker nodes when starting a |FaaSController|.
 	// Note: at each worker machine, core 0 is reserved for the scheduler on

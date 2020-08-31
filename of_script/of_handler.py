@@ -313,11 +313,11 @@ class FaaSSwitchController(app_manager.RyuApp):
         actions_2 = [parser.OFPActionOutput(21)]
         self.add_flow(datapath, 3, match_2, actions_2, 200)
 
-        match_0 = parser.OFPMatch()
-        actions_0 = [parser.OFPActionOutput(21)]
-        self.add_flow(datapath, 3, match_0, actions_0, 100)
-
         """
+        match_3 = parser.OFPMatch()
+        actions_3 = [parser.OFPActionOutput(21)]
+        self.add_flow(datapath, 4, match_3, actions_3, 200)
+
         # Installs rules for testing.
         match_3 = parser.OFPMatch(eth_src="11:11:11:11:11:11", eth_type=ether_types.ETH_TYPE_IP, 
             ipv4_src="10.0.0.1", ipv4_dst="10.0.0.2", ip_proto=in_proto.IPPROTO_TCP, 

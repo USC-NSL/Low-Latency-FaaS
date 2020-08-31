@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"time"
 
 	glog "github.com/golang/glog"
 )
@@ -12,7 +13,7 @@ import (
 const (
 	NIC_RX_QUEUE_LENGTH          = 4096
 	NIC_TX_QUEUE_LENGTH          = 4096
-	STARTUP_CORE_ID              = 1
+	IDLE_CHAINS_CORE_ID          = 1
 	INVALID_CORE_ID              = -1
 	CONTEXT_SWITCH_CYCLE_COST_PP = 5100
 	// A SGroup turns idel if it has been idel for at least 10 traffic samples.
@@ -270,12 +271,16 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 			glog.Errorf("Failed to notify the scheduler. %s", err)
 		}
 
-		coreID := STARTUP_CORE_ID
+		time.Sleep(100 * time.Millisecond)
+
+		coreID := IDLE_CHAINS_CORE_ID
 		if status, err := w.AttachChain(sg.tids, coreID); err != nil {
 			glog.Errorf("Failed to attach SGroup[%d] on core #1. %s", sg.ID(), err)
 		} else if status.GetCode() != 0 {
 			glog.Errorf("AttachChain gRPC request errmsg: %s", status.GetErrmsg())
 		}
+
+		time.Sleep(100 * time.Millisecond)
 
 		core, exists := w.cores[coreID]
 		if !exists {
@@ -397,7 +402,6 @@ func (sg *SGroup) GetPktRate() int {
 
 	return sg.pktRateKpps
 }
-
 
 func (sg *SGroup) GetPktLoad() int {
 	sg.mutex.Lock()
