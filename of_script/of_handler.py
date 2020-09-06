@@ -54,9 +54,16 @@ supported_ofctl = {
     ofproto_v1_3.OFP_VERSION: ofctl_v1_3,
 }
 
-# Todo(Jianfeng): remove these hardcoded IPs.
-kFaaSServerAddress = "128.105.145.93:10515"
-kDetailedLogs = True
+
+FLAGS = gflags.FLAGS
+gflags.DEFINE_string("faas_ip", "128.105.145.66", "FaaS Controller's IP")
+gflags.DEFINE_string("faas_port", "10515", "FaaS Controller service's Port")
+gflags.DEFINE_boolean("verbose", True, "Verbose logs")
+gflags.DEFINE_boolean("pkt", True, "Monitor the number of packets from each flow")
+gflags.DEFINE_integer("inport", 63, "The switch port as the traffic ingress")
+
+
+kFaaSServerAddress = FLAGS.faas_ip + ":" + FLAGS.faas_port
 
 
 ryu_loggers = logging.Logger.manager.loggerDict
@@ -158,6 +165,7 @@ class FaaSSwitchController(app_manager.RyuApp):
 
         # internal flow table
         self._flows = set()
+        self._flows_pkt_count = {}
         self._flows_table_entries = {}
 
     # The background monitoring function.
@@ -181,7 +189,10 @@ class FaaSSwitchController(app_manager.RyuApp):
                     self._print_formatted_flow_stats(flow_ret)
                     self._print_formatted_port_stats(port_ret)
 
-            hub.sleep(10)
+            if FLAGS.pkt:
+                self._print_pkt_stats()
+
+            hub.sleep(8)
 
     def _request_stats(self, datapath):
         ofproto = datapath.ofproto
@@ -207,7 +218,7 @@ class FaaSSwitchController(app_manager.RyuApp):
         body = flow_stats[datapath]
 
         DLOG.info("Total %d flows", len(body))
-        if kDetailedLogs:
+        if FLAGS.verbose:
             for flow in body:
                 DLOG.info('match:%17s actions:%17s pkts:%8d bytes:%8d',
                           str(flow["match"]), str(flow["actions"]), 
@@ -228,6 +239,27 @@ class FaaSSwitchController(app_manager.RyuApp):
                              datapath, stat["port_no"],
                              stat["rx_packets"], stat["rx_bytes"], stat["rx_errors"], 
                              stat["tx_packets"], stat["tx_bytes"], stat["tx_errors"])
+
+    def _print_pkt_stats(self):
+        pkt_samples = sorted(self._flows_pkt_count.values())
+        count_flows = len(pkt_samples)
+        if count_flows == 0:
+            DLOG.info("No flow yet")
+            return
+
+        avg_val = sum(pkt_samples) / count_flows
+        min_val, max_val = pkt_samples[0], pkt_samples[-1]
+        p50_val, p95_val = pkt_samples[int(0.5*count_flows)], pkt_samples[int(0.95*count_flows)]
+
+        DLOG.info("Subsequent pkts from a flow:")
+        DLOG.info("total flows: %d, avg: %d, min: %d, 50pct: %d, 95pct: %d, max: %d", \
+            count_flows, avg_val, min_val, p50_val, p95_val, max_val)
+
+    def _update_per_flow_pkt_stats(self, flowlet):
+        if flowlet not in self._flows_pkt_count:
+            self._flows_pkt_count[flowlet] = 1
+        else:
+            self._flows_pkt_count[flowlet] += 1
 
     # Deletes the stored msg in |self.msgs| after we are done with it.
     # Note: each msg is tagged by its transaction ID, i.e. |msg.xid|.
@@ -304,14 +336,20 @@ class FaaSSwitchController(app_manager.RyuApp):
 
         # The extension table (table ID: 200)
         # Installs the table-miss flow entry for ingress unseen traffic.
-        match_1 = parser.OFPMatch(in_port=21)
+        match_1 = parser.OFPMatch(in_port=FLAGS.inport)
         actions_1 = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, ofproto.OFPCML_NO_BUFFER)]
         self.add_flow(datapath, 0, match_1, actions_1, 200)
 
         # Installs the egress rules for egress traffic.
         match_2 = parser.OFPMatch(eth_dst="00:15:4d:12:2b:f4", eth_type=ether_types.ETH_TYPE_IP)
-        actions_2 = [parser.OFPActionOutput(21)]
+        actions_2 = [parser.OFPActionOutput(FLAGS.inport)]
         self.add_flow(datapath, 3, match_2, actions_2, 200)
+
+        """
+        match_3 = parser.OFPMatch()
+        actions_3 = [parser.OFPActionOutput(FLAGS.inport)]
+        self.add_flow(datapath, 4, match_3, actions_3, 200)
+        """
 
         """
         match_3 = parser.OFPMatch()
@@ -370,6 +408,7 @@ class FaaSSwitchController(app_manager.RyuApp):
                                 match=match, instructions=inst,
                                 out_port=ofproto.OFPP_ANY, out_group=ofproto.OFPP_ANY, table_id=table_id)
         datapath.send_msg(mod)
+        DLOG.info("Delete all existing flows..")
 
     def delete_all_flows(self, datapath):
         ofproto = datapath.ofproto
@@ -382,8 +421,6 @@ class FaaSSwitchController(app_manager.RyuApp):
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
-        DLOG.info("Receive a packet.")
-
         msg = ev.msg
         datapath = msg.datapath
         ofproto = datapath.ofproto
@@ -411,7 +448,8 @@ class FaaSSwitchController(app_manager.RyuApp):
             if icmp_pkt == None:
                 return
 
-            DLOG.info("%d: ICMP pkt in port[%s]: (%s,%s)", dpid, in_port, eth_src, eth_dst)
+            if FLAGS.verbose:
+                DLOG.info("%d: ICMP pkt in port[%s]: (%s,%s)", dpid, in_port, eth_src, eth_dst)
 
             # icmp packets rely on the |self.mac_to_port| table.
             if eth_dst in self.mac_to_port[dpid]:
@@ -450,12 +488,17 @@ class FaaSSwitchController(app_manager.RyuApp):
             tcp_src, tcp_dst = tcp_pkt.src_port, tcp_pkt.dst_port
 
             flowlet = (ipv4_src, ipv4_dst, tcp_src, tcp_dst)
-            # Subsequent packets arrive before their table entry is installed.
-            # Just ignores them.
+
+            if FLAGS.pkt:
+                self._update_per_flow_pkt_stats(flowlet)
+
+            # Ignore subsequent arrivals before its corresponding rule is installed.
             if flowlet in self._flows:
                 return
 
-            DLOG.info("%d: flow in port[%s] (%s,%s,%d,%d)", dpid, in_port, ipv4_src, ipv4_dst, tcp_src, tcp_dst)
+            # New arrival
+            if FLAGS.verbose:
+                DLOG.info("%d: flow in port[%s] (%s,%s,%d,%d)", dpid, in_port, ipv4_src, ipv4_dst, tcp_src, tcp_dst)
             self._flows.add(flowlet)
             self._flows_counter += 1
 
