@@ -10,6 +10,7 @@ import (
 
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
 	kubectl "github.com/USC-NSL/Low-Latency-FaaS/kubectl"
+	utils "github.com/USC-NSL/Low-Latency-FaaS/utils"
 	glog "github.com/golang/glog"
 )
 
@@ -26,14 +27,14 @@ type FaaSController struct {
 }
 
 // Creates a new FaaS controller.
-func NewFaaSController(isTest bool, cluster *Cluster) *FaaSController {
+func NewFaaSController(isTest bool, cluster *utils.Cluster) *FaaSController {
 	c := &FaaSController{
 		workers:  make(map[string]*Worker),
 		dags:     make(map[string]*DAG),
 		masterIP: cluster.Master.IP,
 	}
 
-	kubectl.SetFaaSControllerIP(c.masterIP)
+	kubectl.SetFaaSClusterInfo(cluster)
 
 	// Initializes all worker nodes when starting a |FaaSController|.
 	// Note: at each worker machine, core 0 is reserved for the scheduler on

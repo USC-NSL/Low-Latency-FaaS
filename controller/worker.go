@@ -288,7 +288,7 @@ func (w *Worker) attachSGroup(sg *SGroup, coreID int) error {
 		if !exists {
 			return errors.New(fmt.Sprintf("Core[%d] not found", prevCoreID))
 		}
-		prevCore.detachSGroup(sg)
+		prevCore.removeSGroup(sg)
 	}
 
 	// Sends gRPC to inform scheduler.
@@ -303,7 +303,7 @@ func (w *Worker) attachSGroup(sg *SGroup, coreID int) error {
 	if !exists {
 		return errors.New(fmt.Sprintf("Core[%d] not found", coreID))
 	}
-	core.attachSGroup(sg)
+	core.addSGroup(sg)
 
 	return nil
 }

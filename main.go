@@ -10,6 +10,7 @@ import (
 	cli "github.com/USC-NSL/Low-Latency-FaaS/cli"
 	controller "github.com/USC-NSL/Low-Latency-FaaS/controller"
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
+	utils "github.com/USC-NSL/Low-Latency-FaaS/utils"
 	prompt "github.com/c-bata/go-prompt"
 	glog "github.com/golang/glog"
 )
@@ -28,7 +29,7 @@ func usage() {
 }
 
 func main() {
-	clusterInfo, err := controller.ParseClusterInfo("./cloudlab_cluster.json")
+	clusterInfo, err := utils.ParseClusterInfo("./cloudlab_cluster.json")
 	if err != nil {
 		glog.Errorf("Failed to read the cluster info. %v", err)
 	}

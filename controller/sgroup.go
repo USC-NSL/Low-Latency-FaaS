@@ -286,7 +286,7 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 		if !exists {
 			glog.Errorf("Core[%d] not found", coreID)
 		} else {
-			core.attachSGroup(sg)
+			core.addSGroup(sg)
 		}
 
 		sg.coreID = 1
@@ -459,7 +459,7 @@ func (sg *SGroup) attachSGroup(coreID int) error {
 
 	sg.SetCoreID(coreID)
 	sg.SetSched(true)
-	glog.Infof("SGroup[%d] runs on Core[%d]", sg.ID(), coreID)
+	glog.Infof("SGroup[%d] runs on W %s Core[%d]", sg.ID(), sg.worker.name, coreID)
 	return nil
 }
 
@@ -478,6 +478,6 @@ func (sg *SGroup) detachSGroup() error {
 	}
 
 	sg.SetSched(false)
-	glog.Infof("SGroup[%d] is detached on Core[%d]", sg.ID(), sg.GetCoreID())
+	glog.Infof("SGroup[%d] is detached on W %s Core[%d]", sg.ID(), sg.worker.name, sg.GetCoreID())
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
+	utils "github.com/USC-NSL/Low-Latency-FaaS/utils"
 	glog "github.com/golang/glog"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -16,10 +17,12 @@ const kNFImage string = "nf:debug"
 const kCoopSchedImage string = "coopsched:debug"
 const kFaaSControllerPort string = "10515"
 
+var kFaaSCluster *utils.Cluster = nil
 var kFaaSControllerIP string = ""
 
-func SetFaaSControllerIP(ip string) {
-	kFaaSControllerIP = ip
+func SetFaaSClusterInfo(cluster *utils.Cluster) {
+	kFaaSCluster = cluster
+	kFaaSControllerIP = cluster.Master.IP
 }
 
 // All kinds of possible NFs.
@@ -227,6 +230,15 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string, funcType stri
 // In Kubernetes, the instance is run as a deployment with name "nodeName-sched".
 func (k8s *KubeController) makeSchedDeploymentSpec(nodeName string, hostPort int) unstructured.Unstructured {
 	deploymentName := fmt.Sprintf("%s-coopsched", nodeName)
+	coreNum := "15"
+	// w.Cores is the total number of available cores in the worker.
+	// Note: One core is required to run gRPC and monitoring threads,
+	// and cannot be used for NF threads.
+	for _, w := range kFaaSCluster.Workers {
+		if w.Name == nodeName {
+			coreNum = fmt.Sprintf("%d", w.Cores-1)
+		}
+	}
 
 	deployment := unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -276,7 +288,7 @@ func (k8s *KubeController) makeSchedDeploymentSpec(nodeName string, hostPort int
 								},
 								"command": []string{
 									"/app/cooperative_sched",
-									"--cores=16",
+									"--cores=" + coreNum,
 									"--cli=0",
 									"--logtostderr=1",
 								},
