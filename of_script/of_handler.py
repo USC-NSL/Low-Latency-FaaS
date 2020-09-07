@@ -64,6 +64,8 @@ gflags.DEFINE_integer("inport", 63, "The switch port as the traffic ingress")
 
 
 kFaaSServerAddress = FLAGS.faas_ip + ":" + FLAGS.faas_port
+kDefaultMonitoringPeriod = 30
+kDefaultIdleTimeout = 10
 
 
 ryu_loggers = logging.Logger.manager.loggerDict
@@ -192,7 +194,7 @@ class FaaSSwitchController(app_manager.RyuApp):
             if FLAGS.pkt:
                 self._print_pkt_stats()
 
-            hub.sleep(8)
+            hub.sleep(kDefaultMonitoringPeriod)
 
     def _request_stats(self, datapath):
         ofproto = datapath.ofproto
@@ -332,29 +334,23 @@ class FaaSSwitchController(app_manager.RyuApp):
         # The default rule that forwards all packets to the next table.
         match_0 = parser.OFPMatch()
         actions_0 = []
-        self.add_flow(datapath, 0, match_0, actions_0, 100)
+        self.add_flow(datapath, match_0, actions_0, 100, priority=0, idle_timeout=0)
 
         # The extension table (table ID: 200)
         # Installs the table-miss flow entry for ingress unseen traffic.
         match_1 = parser.OFPMatch(in_port=FLAGS.inport)
         actions_1 = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, ofproto.OFPCML_NO_BUFFER)]
-        self.add_flow(datapath, 0, match_1, actions_1, 200)
+        self.add_flow(datapath, match_1, actions_1, 200, priority=0, idle_timeout=0)
 
         # Installs the egress rules for egress traffic.
         match_2 = parser.OFPMatch(eth_dst="00:15:4d:12:2b:f4", eth_type=ether_types.ETH_TYPE_IP)
         actions_2 = [parser.OFPActionOutput(FLAGS.inport)]
-        self.add_flow(datapath, 3, match_2, actions_2, 200)
-
-        """
-        match_3 = parser.OFPMatch()
-        actions_3 = [parser.OFPActionOutput(FLAGS.inport)]
-        self.add_flow(datapath, 4, match_3, actions_3, 200)
-        """
+        self.add_flow(datapath, match_2, actions_2, 200, priority=3, idle_timeout=0)
 
         """
         match_3 = parser.OFPMatch()
         actions_3 = [parser.OFPActionOutput(21)]
-        self.add_flow(datapath, 4, match_3, actions_3, 200)
+        self.add_flow(datapath, match_3, actions_3, 200, priority=4, idle_timeout=0)
 
         # Installs rules for testing.
         match_3 = parser.OFPMatch(eth_src="11:11:11:11:11:11", eth_type=ether_types.ETH_TYPE_IP, 
@@ -362,17 +358,17 @@ class FaaSSwitchController(app_manager.RyuApp):
             tcp_src=1234, tcp_dst=4321)
         actions_3 = [parser.OFPActionSetField(eth_dst="00:00:00:00:00:01"),
             parser.OFPActionOutput(17)]
-        self.add_flow(datapath, 1, match_3, actions_3, 200)
+        self.add_flow(datapath, match_3, actions_3, 200, priority=1, idle_timeout=0)
 
         match_4 = parser.OFPMatch(in_port=17)
         actions_4 = [parser.OFPActionOutput(9)]
-        self.add_flow(datapath, 1, match_4, actions_4, 200)
+        self.add_flow(datapath, match_4, actions_4, 200, priority=1, idle_timeout=0)
         """
 
-    def add_flow(self, datapath, priority, match, actions, table_id):
+    def add_flow(self, datapath, match, actions, table_id, priority, idle_timeout):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
-        idle_timeout = hard_timeout = 0
+        hard_timeout = 0
 
         # construct the flow instruction
         inst = []
@@ -463,7 +459,7 @@ class FaaSSwitchController(app_manager.RyuApp):
             # install a flow to avoid packet_in next time.
             if out_port != ofproto.OFPP_FLOOD:
                 match = parser.OFPMatch(eth_dst=eth_dst, eth_type=ether_types.ETH_TYPE_IP)
-                self.add_flow(datapath, 1, match, actions, 200)
+                self.add_flow(datapath, match, actions, 200, priority=2, idle_timeout=kDefaultIdleTimeout)
 
             # learn a mac address to avoid FLOOD next time.
             self.mac_to_port[dpid][eth_src] = in_port
@@ -494,7 +490,13 @@ class FaaSSwitchController(app_manager.RyuApp):
 
             # Ignore subsequent arrivals before its corresponding rule is installed.
             if flowlet in self._flows:
-                return
+                if flowlet in self._flows_table_entries:
+                    _, _, prev, _, _ = self._flows_table_entries[flowlet]
+                    if time.time() - prev <= kDefaultIdleTimeout:
+                        return
+                else:
+                    # Subsequent packet arrivals before the rule is installed
+                    return
 
             # New arrival
             if FLAGS.verbose:
@@ -526,10 +528,10 @@ class FaaSSwitchController(app_manager.RyuApp):
             match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, 
                 ipv4_src=ipv4_src, ipv4_dst=ipv4_dst, ip_proto=in_proto.IPPROTO_TCP, 
                 tcp_src=tcp_src, tcp_dst=tcp_dst)
-            self.add_flow(datapath, 2, match, actions, 200)
+            self.add_flow(datapath, match, actions, 200, priority=2, idle_timeout=kDefaultIdleTimeout)
 
             # inserts the new flow into the internal table.
-            self._flows_table_entries[flowlet] = (select_dmac, select_port)
+            self._flows_table_entries[flowlet] = (select_dmac, select_port, time.time(), match, actions)
 
             # construct packet_out message and send it.
             out = parser.OFPPacketOut(datapath=datapath,
