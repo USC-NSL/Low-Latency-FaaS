@@ -164,6 +164,9 @@ class FaaSSwitchController(app_manager.RyuApp):
         # internal counters
         self._flows_counter = 0
         self._pkts_counter = 0
+        self._lost_pkts_counter = 0
+        self._last_lost_pkts_ts = time.time()
+        self._last_lost_pkts_counter = 0
 
         # internal flow table
         self._flows = set()
@@ -252,10 +255,16 @@ class FaaSSwitchController(app_manager.RyuApp):
         avg_val = sum(pkt_samples) / count_flows
         min_val, max_val = pkt_samples[0], pkt_samples[-1]
         p50_val, p95_val = pkt_samples[int(0.5*count_flows)], pkt_samples[int(0.95*count_flows)]
+        
+        now = time.time()
+        lost_rate = (self._lost_pkts_counter - self._last_lost_pkts_counter) / (now - self._last_lost_pkts_ts)
+        self._last_lost_pkts_counter = self._lost_pkts_counter
+        self._last_lost_pkts_ts = now
 
         DLOG.info("Subsequent pkts from a flow:")
         DLOG.info("total flows: %d, avg: %d, min: %d, 50pct: %d, 95pct: %d, max: %d", \
             count_flows, avg_val, min_val, p50_val, p95_val, max_val)
+        DLOG.info("Lost packet rate: %d", lost_rate)
 
     def _update_per_flow_pkt_stats(self, flowlet):
         if flowlet not in self._flows_pkt_count:
@@ -348,9 +357,10 @@ class FaaSSwitchController(app_manager.RyuApp):
         self.add_flow(datapath, match_2, actions_2, 200, priority=3, idle_timeout=0)
 
         """
-        match_3 = parser.OFPMatch()
-        actions_3 = [parser.OFPActionOutput(21)]
-        self.add_flow(datapath, match_3, actions_3, 200, priority=4, idle_timeout=0)
+        # Switches all packets back to the traffic generator. 
+        match_3 = parser.OFPMatch(in_port=FLAGS.inport)
+        actions_3 = [parser.OFPActionOutput(FLAGS.inport)]
+        self.add_flow(datapath, match_3, actions_3, 200, priority=0, idle_timeout=0)
 
         # Installs rules for testing.
         match_3 = parser.OFPMatch(eth_src="11:11:11:11:11:11", eth_type=ether_types.ETH_TYPE_IP, 
@@ -413,6 +423,7 @@ class FaaSSwitchController(app_manager.RyuApp):
         # This FlowMod matches all flows. So it will delete all flows at table 200.
         match = parser.OFPMatch()
         actions = []
+        self.delete_flow(datapath, 0, match, actions, 200)
         self.delete_flow(datapath, 1, match, actions, 200)
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
@@ -493,16 +504,22 @@ class FaaSSwitchController(app_manager.RyuApp):
                 if flowlet in self._flows_table_entries:
                     _, _, prev, _, _ = self._flows_table_entries[flowlet]
                     if time.time() - prev <= kDefaultIdleTimeout:
+                        self._lost_pkts_counter += 1
                         return
+
+                    # A previously observed (timeout) flow.
+                    self._flows_pkt_count[flowlet] = 1
                 else:
                     # Subsequent packet arrivals before the rule is installed
+                    DLOG.info(flowlet)
                     return
+            else:
+                self._flows.add(flowlet)
+                self._flows_counter += 1
 
             # New arrival
-            if FLAGS.verbose:
-                DLOG.info("%d: flow in port[%s] (%s,%s,%d,%d)", dpid, in_port, ipv4_src, ipv4_dst, tcp_src, tcp_dst)
-            self._flows.add(flowlet)
-            self._flows_counter += 1
+            #if FLAGS.verbose:
+            #    DLOG.info("%d: flow in port[%s] (%s,%s,%d,%d)", dpid, in_port, ipv4_src, ipv4_dst, tcp_src, tcp_dst)
 
             flow_info = message_pb.FlowInfo()
             # Parses |flow_info| from the packet as it is the first packet of the flow.
@@ -517,6 +534,7 @@ class FaaSSwitchController(app_manager.RyuApp):
             response = faas_client.UpdateFlow(flow_info)
 
             if response.dmac == "none":
+                DLOG.info("FaaS Cluster does not have any available cores")
                 return
 
             # OFPActionOutput takes an integer as input.
