@@ -35,3 +35,21 @@ message FlowTableEntry {
     uint32 switch_port = 2;
     string dmac = 3;
 }
+
+message InsertFlowEntryRequest {
+    string ipv4_src = 1;
+    string ipv4_dst = 2;
+    uint32 ipv4_protocol = 3;
+    uint32 tcp_sport = 4;
+    uint32 tcp_dport = 5;
+    uint32 switch_port = 6;
+    string dmac = 7;
+}
+
+message DeleteFlowEntryRequest {
+    string ipv4_src = 1;
+    string ipv4_dst = 2;
+    uint32 ipv4_protocol = 3;
+    uint32 tcp_sport = 4;
+    uint32 tcp_dport = 5;
+}
