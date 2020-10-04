@@ -1,23 +1,16 @@
-
 # This is the OpenFlow switch controller that works for the OpenFlow
 # switch in a FaaS-NFV system.
 # The controller sets up forwarding rules for each new flow.
-# (1) Upon receiving the first packet of a flow, the switch controller
-# queries FaaS-Controller to select all potentially related container
-# instances, and encodes results in the NSH header.
-# (2) Upon receiving all subsequent packets of a flow, the switch ensures
-# that these packets go through the same path.
 
-import time
-import threading
 import os
 import sys
+import time
 import json
 import struct
 import copy
 import collections
-import gflags
 import logging
+import gflags
 from operator import attrgetter
 from ryu.base import app_manager
 from ryu.app import simple_switch_13
@@ -38,6 +31,7 @@ from ryu.lib import ofctl_v1_3
 #import ofdpa.flow_description as FlowDescriptionReader
 
 # Protobuf and GRPC.
+import redis
 import grpc
 from concurrent import futures
 from google.protobuf.empty_pb2 import Empty
@@ -59,11 +53,12 @@ gflags.DEFINE_string("faas_ip", "128.105.145.66", "FaaS Controller's IP")
 gflags.DEFINE_string("faas_port", "10515", "FaaS Controller service's Port")
 gflags.DEFINE_boolean("verbose", False, "Verbose logs")
 gflags.DEFINE_boolean("pkt", True, "Monitor the number of packets from each flow")
-gflags.DEFINE_integer("inport", 63, "The switch port as the traffic ingress")
+gflags.DEFINE_integer("inport", 44, "The switch port as the traffic ingress")
 
-kFaaSServerAddress = "%s:%s" %(FLAGS_faas_ip, FLAGS_faas_port)
+kFaaSServerAddress = "%s:%s" %(FLAGS.faas_ip, FLAGS.faas_port)
+kSwitchServiceOn = False
 kSwitchServerAddress = "[::]:10516"
-kDefaultMonitoringPeriod = 30
+kDefaultMonitoringPeriod = 20
 kDefaultIdleTimeout = 10
 
 
@@ -114,7 +109,7 @@ def stats_method(method):
 
 
 class SwitchControlService(switch_rpc.SwitchControlServicer):
-    """ The SwitchController gRPC server.
+    """ The SwitchController gRPC server. (Not used)
     This class is the main gRPC server that implements operations related
     to a OpenFlow switch.
     Args:
@@ -128,6 +123,7 @@ class SwitchControlService(switch_rpc.SwitchControlServicer):
     ## The following functions implement gRPC server function calls.
     # |request| is an FlowTableEntry.
     def InsertFlowEntry(self, request, context):
+        print "good"
         if self._of_interface:
             self._of_interface.process_new_flow(request)
         return Empty()
@@ -150,19 +146,17 @@ class FaaSRuleInstaller(app_manager.RyuApp):
         'dpset': dpset.DPSet,
     }
 
-    _switch_controller = None
-    # Run grpc server in a separate thread.
+    _workers = []
     _grpc_server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    _switch_controller = None
 
     def __init__(self, *args, **kwargs):
         super(FaaSRuleInstaller, self).__init__(*args, **kwargs)
 
+        # Ryu uses eventlet, which is imcompatible with the native threads.
         self._switch_controller = SwitchControlService(self)
         switch_rpc.add_SwitchControlServicer_to_server(self._switch_controller, self._grpc_server)
         self._grpc_server.add_insecure_port(kSwitchServerAddress)
-        self._grpc_thread = threading.Thread(target=self._grpc_server.start()) # Set up gRPC server
-
-        self.monitor_thread = hub.spawn(self._monitor)
 
         self.dpset = kwargs['dpset']
         #wsgi = kwargs['wsgi']
@@ -190,11 +184,33 @@ class FaaSRuleInstaller(app_manager.RyuApp):
         self._flows_pkt_count = {}
         self._flows_table_entries = {}
 
+        self.monitor_thread = hub.spawn(self._monitor)
+
+        if not kSwitchServiceOn:
+            self._redis_conn = redis.Redis(host='127.0.0.1', port=6379, password='faas-nfv-cool')
+            self._redis_sub = self._redis_conn.pubsub()
+            self._redis_sub.subscribe('flow')
+            self.flow_thread = hub.spawn(self._handle_flows)
+
     # The background monitoring function.
     # Outputs the message every 10-second.
     def _monitor(self):
         while True:
             for dp in self.datapaths.values():
+                ofproto = dp.ofproto
+                parser = dp.ofproto_parser
+                flow_request_str = "10.0.0.28,10.0.0.12,6,10001,8080,21,00:00:00:00:00:02"
+                flow_request = flow_request_str.split(',')
+                select_port = int(flow_request[5])
+                select_dmac = flow_request[6]
+                actions = [parser.OFPActionSetField(eth_dst=select_dmac),
+                        parser.OFPActionOutput(select_port)]
+                match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP,
+                        ipv4_src=flow_request[0], ipv4_dst=flow_request[1],
+                        ip_proto=int(flow_request[2]),
+                        tcp_src=int(flow_request[3]), tcp_dst=int(flow_request[4]))
+                #self._add_flow(dp, match, actions, 200, priority=2, idle_timeout=kDefaultIdleTimeout)
+
                 try:
                     ofctl = supported_ofctl.get(dp.ofproto.OFP_VERSION)
                 except KeyError:
@@ -216,6 +232,15 @@ class FaaSRuleInstaller(app_manager.RyuApp):
                 self._print_loss_stats()
 
             hub.sleep(kDefaultMonitoringPeriod)
+
+    def _handle_flows(self):
+        while True:
+            message = self._redis_sub.get_message()
+            if message and message['data']:
+                if isinstance(message['data'], basestring):
+                    self.process_new_flow(message['data'])
+
+            hub.sleep(0.002)
 
     def _request_stats(self, datapath):
         ofproto = datapath.ofproto
@@ -374,6 +399,9 @@ class FaaSRuleInstaller(app_manager.RyuApp):
         match_2 = parser.OFPMatch(eth_dst="00:15:4d:12:2b:f4", eth_type=ether_types.ETH_TYPE_IP)
         actions_2 = [parser.OFPActionOutput(FLAGS.inport)]
         self._add_flow(datapath, match_2, actions_2, 200, priority=3, idle_timeout=0)
+
+        if kSwitchServiceOn:
+            self._grpc_server.start()
         return
 
     def _add_flow(self, datapath, match, actions, table_id, priority, idle_timeout):
@@ -425,6 +453,8 @@ class FaaSRuleInstaller(app_manager.RyuApp):
         actions = []
         self._delete_flow(datapath, 0, match, actions, 200)
         self._delete_flow(datapath, 1, match, actions, 200)
+        self._delete_flow(datapath, 2, match, actions, 200)
+        self._delete_flow(datapath, 3, match, actions, 200)
         DLOG.info("Delete all existing flows..")
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
@@ -435,19 +465,26 @@ class FaaSRuleInstaller(app_manager.RyuApp):
         parser = datapath.ofproto_parser
         return
 
-    def process_new_flow(self, flow_request):
+    def process_new_flow(self, flow_request_str):
         """ Install a flow to avoid packet_in next time.
+        Here is one example flow request:
+            10.0.0.28,10.0.0.12,6,10001,8080,21,00:00:00:00:00:02
+        Args:
+            flow_request_str: the incoming flow request in the str format
         """
-        select_dmac = flow_request.dmac
-        select_port = int(flow_request.switch_port)
+        datapath = self.datapaths.values()[0]
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        flow_request = flow_request_str.split(',')
+
+        select_port = int(flow_request[5])
+        select_dmac = flow_request[6]
         actions = [parser.OFPActionSetField(eth_dst=select_dmac),
                 parser.OFPActionOutput(select_port)]
-
         match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP,
-                ipv4_src=flow_request.ipv4_src, ipv4_dst=flow_request.ipv4_dst,
-                ip_proto=flow_request.ipv4_protocol,
-                tcp_src=flow_request.tcp_sport, tcp_dst=flow_request.tcp_dport)
-
+                ipv4_src=flow_request[0], ipv4_dst=flow_request[1],
+                ip_proto=int(flow_request[2]),
+                tcp_src=int(flow_request[3]), tcp_dst=int(flow_request[4]))
         self._add_flow(datapath, match, actions, 200, priority=2, idle_timeout=kDefaultIdleTimeout)
 
 
