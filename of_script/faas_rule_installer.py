@@ -59,7 +59,7 @@ kFaaSServerAddress = "%s:%s" %(FLAGS.faas_ip, FLAGS.faas_port)
 kSwitchServiceOn = False
 kSwitchServerAddress = "[::]:10516"
 kDefaultMonitoringPeriod = 20
-kDefaultIdleTimeout = 10
+kDefaultIdleTimeout = 60
 
 
 ryu_loggers = logging.Logger.manager.loggerDict
@@ -308,7 +308,7 @@ class FaaSRuleInstaller(app_manager.RyuApp):
         lost_rate = (self._lost_pkts_counter - self._last_lost_pkts_counter) / (now - self._last_lost_pkts_ts)
         self._last_lost_pkts_counter = self._lost_pkts_counter
         self._last_lost_pkts_ts = now
-        DLOG.info("Lost packet rate: %d", lost_rate)
+        DLOG.info("Lost packet rate: %d pps", lost_rate)
 
     def _update_per_flow_pkt_stats(self, flowlet):
         if flowlet not in self._flows_pkt_count:
@@ -459,11 +459,16 @@ class FaaSRuleInstaller(app_manager.RyuApp):
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
-        msg = ev.msg
-        datapath = msg.datapath
-        ofproto = datapath.ofproto
-        parser = datapath.ofproto_parser
-        return
+        """ FaaSIngress handles incoming flows as a sevice. Ideally, 
+        this Ryu controller should expect no FlowIn message. However,
+        before the rule is installed, subsequent packets may arrive and
+        be forwarded here. The controller considers them as losses.
+        """
+        # msg = ev.msg
+        # datapath = msg.datapath
+        # ofproto = datapath.ofproto
+        # parser = datapath.ofproto_parser
+        self._lost_pkts_counter += 1
 
     def process_new_flow(self, flow_request_str):
         """ Install a flow to avoid packet_in next time.

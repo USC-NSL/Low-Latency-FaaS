@@ -56,16 +56,16 @@ supported_ofctl = {
 
 
 FLAGS = gflags.FLAGS
-gflags.DEFINE_string("faas_ip", "128.105.145.66", "FaaS Controller's IP")
+gflags.DEFINE_string("faas_ip", "128.105.145.134", "FaaS Controller's IP")
 gflags.DEFINE_string("faas_port", "10515", "FaaS Controller service's Port")
-gflags.DEFINE_boolean("verbose", True, "Verbose logs")
+gflags.DEFINE_boolean("verbose", False, "Verbose logs")
 gflags.DEFINE_boolean("pkt", True, "Monitor the number of packets from each flow")
-gflags.DEFINE_integer("inport", 63, "The switch port as the traffic ingress")
+gflags.DEFINE_integer("inport", 44, "The switch port as the traffic ingress")
 
 
 kFaaSServerAddress = FLAGS.faas_ip + ":" + FLAGS.faas_port
-kDefaultMonitoringPeriod = 30
-kDefaultIdleTimeout = 10
+kDefaultMonitoringPeriod = 20
+kDefaultIdleTimeout = 60
 
 
 ryu_loggers = logging.Logger.manager.loggerDict
@@ -358,23 +358,6 @@ class FaaSSwitchController(app_manager.RyuApp):
         actions_2 = [parser.OFPActionOutput(FLAGS.inport)]
         self.add_flow(datapath, match_2, actions_2, 200, priority=3, idle_timeout=0)
 
-        ipv4_src, ipv4_dst = "10.0.0.1", "10.0.0.2"
-        start_time = time.time()
-        for i in range(1000):
-            actions = [parser.OFPActionSetField(eth_dst="00:00:00:00:00:01"), parser.OFPActionOutput(FLAGS.inport)]
-            # install a flow to avoid packet_in next time.
-            match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, 
-                ipv4_src=ipv4_src, ipv4_dst=ipv4_dst, ip_proto=in_proto.IPPROTO_TCP, 
-                tcp_src=9000+i, tcp_dst=8080)
-            self.add_flow(datapath, match, actions, 200, priority=3, idle_timeout=0)
-        
-        while datapath.send_q.qsize() != 0:
-            print datapath.send_q.qsize()
-            time.sleep(1)
-        end_time = time.time()
-
-        print "rate=%d" %(1000 / (end_time - start_time))
-
         """
         # Switches all packets back to the traffic generator. 
         match_3 = parser.OFPMatch(in_port=FLAGS.inport)
@@ -443,6 +426,8 @@ class FaaSSwitchController(app_manager.RyuApp):
         actions = []
         self.delete_flow(datapath, 0, match, actions, 200)
         self.delete_flow(datapath, 1, match, actions, 200)
+        self.delete_flow(datapath, 2, match, actions, 200)
+        self.delete_flow(datapath, 3, match, actions, 200)
         DLOG.info("Delete all existing flows..")
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
@@ -535,10 +520,6 @@ class FaaSSwitchController(app_manager.RyuApp):
             else:
                 self._flows.add(flowlet)
                 self._flows_counter += 1
-
-            # New arrival
-            #if FLAGS.verbose:
-            #    DLOG.info("%d: flow in port[%s] (%s,%s,%d,%d)", dpid, in_port, ipv4_src, ipv4_dst, tcp_src, tcp_dst)
 
             flow_info = message_pb.FlowInfo()
             # Parses |flow_info| from the packet as it is the first packet of the flow.

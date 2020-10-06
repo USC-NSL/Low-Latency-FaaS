@@ -170,15 +170,25 @@ func (c *FaaSController) ConnectNFs(user string, upNF int, downNF int) error {
 	return c.dags[user].connectNFs(upNF, downNF)
 }
 
+func (c *FaaSController) AddFlow(user string, srcIP string, dstIP string, srcPort uint32, dstPort uint32, protoIP uint32) error {
+	dag, exists := c.dags[user]
+	if !exists {
+		return errors.New(fmt.Sprintf("User [%s] does not exist.", user))
+	}
+
+	dag.addFlow(srcIP, dstIP, srcPort, dstPort, protoIP)
+	return nil
+}
+
 // Starts running a NF DAG.
 func (c *FaaSController) ActivateDAG(user string) error {
 	dag, exists := c.dags[user]
 	if !exists {
 		return errors.New(fmt.Sprintf("User [%s] has no NFs.", user))
 	}
-
-	// For testing only, incoming packets always have a dstPort 8080.
-	dag.addFlow("", "", 0, 8080, 0)
+	if len(dag.flowlets) == 0 {
+		return errors.New(fmt.Sprintf("User [%s] has no target flowlets.", user))
+	}
 
 	dag.Activate()
 
