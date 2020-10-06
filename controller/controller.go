@@ -24,6 +24,7 @@ type FaaSController struct {
 	workers  map[string]*Worker
 	dags     map[string]*DAG
 	masterIP string
+	logger   *FaaSLogger
 }
 
 // Creates a new FaaS controller.
@@ -32,7 +33,9 @@ func NewFaaSController(isTest bool, cluster *utils.Cluster) *FaaSController {
 		workers:  make(map[string]*Worker),
 		dags:     make(map[string]*DAG),
 		masterIP: cluster.Master.IP,
+		logger:   nil,
 	}
+	c.logger = NewFaaSLogger(c)
 
 	kubectl.SetFaaSClusterInfo(cluster)
 
@@ -65,6 +68,8 @@ func NewFaaSController(isTest bool, cluster *utils.Cluster) *FaaSController {
 		}
 
 		wg.Wait()
+
+		go c.logger.RunFaaSLogger()
 	}
 
 	return c
@@ -94,13 +99,14 @@ func (c *FaaSController) Close() error {
 	wgDone := make(chan bool)
 
 	var wg sync.WaitGroup
-	wg.Add(len(c.workers))
+	wg.Add(len(c.workers) + 1)
 
 	go func() {
 		wg.Wait()
 		close(wgDone)
 	}()
 
+	// Stops all workers.
 	for _, w := range c.workers {
 		go func(w *Worker) {
 			if err := w.Close(); err != nil {
@@ -109,6 +115,11 @@ func (c *FaaSController) Close() error {
 			wg.Done()
 		}(w)
 	}
+	// Stops the logger.
+	go func(l *FaaSLogger) {
+		l.StopFaaSLogger()
+		wg.Done()
+	}(c.logger)
 
 	select {
 	case <-wgDone:
