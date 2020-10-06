@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
 	kubectl "github.com/USC-NSL/Low-Latency-FaaS/kubectl"
@@ -209,7 +210,11 @@ func (c *FaaSController) ActivateDAG(user string) error {
 			break
 		}
 
-		sg.worker.createSGroup(sg, dag)
+		if sg.worker.countPendingSGroups() <= 5 {
+			sg.worker.createSGroup(sg, dag)
+		} else {
+			time.Sleep(time.Second)
+		}
 	}
 
 	glog.Info("DAG is activated.")

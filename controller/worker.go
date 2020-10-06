@@ -266,6 +266,19 @@ func (w *Worker) destroySGroup(sg *SGroup) error {
 	return nil
 }
 
+func (w *Worker) countPendingSGroups() int {
+	w.sgMutex.Lock()
+	defer w.sgMutex.Unlock()
+
+	cnt := 0
+	for _, sg := range w.sgroups {
+		if sg.IsReady() {
+			cnt += 1
+		}
+	}
+	return cnt
+}
+
 func (w *Worker) getSGroup(groupID int) *SGroup {
 	w.sgMutex.Lock()
 	defer w.sgMutex.Unlock()
