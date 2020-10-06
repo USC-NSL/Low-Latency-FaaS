@@ -11,12 +11,18 @@ import (
 )
 
 const (
-	NIC_RX_QUEUE_LENGTH          = 4096
-	NIC_TX_QUEUE_LENGTH          = 4096
-	IDLE_CHAINS_CORE_ID          = 1
-	INVALID_CORE_ID              = -1
+	// The default NIC hardware rx/tx queue size.
+	NIC_RX_QUEUE_LENGTH = 4096
+	NIC_TX_QUEUE_LENGTH = 4096
+
+	// Core indexes for idle chains
+	IDLE_CHAINS_CORE_ID = 1
+	INVALID_CORE_ID     = -1
+
+	// The context switch time in CPU cycles
 	CONTEXT_SWITCH_CYCLE_COST_PP = 5100
-	// A SGroup turns idel if it has been idel for at least 10 traffic samples.
+
+	// A SGroup turns ideleif it has been idle for at least 10 traffic samples.
 	MIN_IDLE_DURATION = 10
 )
 
@@ -221,20 +227,14 @@ func (sg *SGroup) adjustBatchCount() {
 	//sg.batchCount = int(math.Pow(2, math.Ceil(math.Log2(cnt))))
 
 	for _, ins := range sg.instances {
-		for try := 0; try < 3; try += 1 {
-			if msg, err := ins.setBatch(sg.batchSize, sg.batchCount); err != nil {
-				glog.Errorf("Failed to set batch for Instance %s. %v", ins.funcType, err)
-			} else if msg != "" {
-				glog.Errorf("Response: " + msg)
-			} else {
-				break
-			}
+		if err := ins.setBatch(sg.batchSize, sg.batchCount); err != nil {
+			glog.Errorf("%v", err)
 		}
 
 		if ins.funcType == "bypass" {
 			// All connections have been set up.
 			if err := ins.setCycles(ins.profiledCycle); err != nil {
-				glog.Errorf("Failed to set batch for Instance %s. %v", ins.funcType, err)
+				glog.Errorf("%v", err)
 			}
 		}
 	}

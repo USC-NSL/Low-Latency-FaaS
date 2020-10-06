@@ -367,13 +367,13 @@ func (w *Worker) setCycles(port int, cyclesPerPacket int) error {
 	return ins.setCycles(cyclesPerPacket)
 }
 
-func (w *Worker) setBatch(port int, batchSize int, batchNumber int) (string, error) {
+func (w *Worker) setBatch(port int, batchSize int, batchNumber int) error {
 	w.sgMutex.Lock()
 	defer w.sgMutex.Unlock()
 
 	ins := w.insStartupPool.get(port)
 	if ins == nil || ins.sg == nil {
-		return "", errors.New(fmt.Sprintf("Cannot find instance with port %d on %s", port, w.name))
+		return errors.New(fmt.Sprintf("Cannot find instance with port %d on %s", port, w.name))
 	}
 	return ins.setBatch(batchSize, batchNumber)
 }

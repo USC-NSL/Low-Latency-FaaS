@@ -336,10 +336,10 @@ func (c *FaaSController) SetCycles(nodeName string, port int, cyclesPerPacket in
 
 // Set batch size and batch number for instance on worker |nodeName| with port |port|.
 // See message.proto for more information.
-func (c *FaaSController) SetBatch(nodeName string, port int, batchSize int, batchNumber int) (string, error) {
+func (c *FaaSController) SetBatch(nodeName string, port int, batchSize int, batchNumber int) error {
 	w, exists := c.workers[nodeName]
 	if !exists {
-		return "", fmt.Errorf("Worker[%s] does not exist", nodeName)
+		return fmt.Errorf("Worker[%s] does not exist", nodeName)
 	}
 	return w.setBatch(port, batchSize, batchNumber)
 }

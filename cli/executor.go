@@ -166,7 +166,7 @@ func (e *Executor) Execute(s string) {
 				e.FaaSController.ActivateDAG(user)
 			}
 		} else {
-			fmt.Printf("Usage: exp [a|b|c]")
+			fmt.Println("Usage: exp [a|b|c]")
 		}
 	} else if words[0] == "cycle" && len(words) >= 4 {
 		nodeName := words[1]
@@ -180,10 +180,8 @@ func (e *Executor) Execute(s string) {
 		port, _ := strconv.Atoi(words[2])
 		batchSize, _ := strconv.Atoi(words[3])
 		batchNumber, _ := strconv.Atoi(words[4])
-		if msg, err := e.FaaSController.SetBatch(nodeName, port, batchSize, batchNumber); err != nil {
+		if err := e.FaaSController.SetBatch(nodeName, port, batchSize, batchNumber); err != nil {
 			fmt.Printf("Failed to set batch size on instance (port=%d) of worker %s: %s!\n", port, nodeName, err.Error())
-		} else if msg != "" {
-			fmt.Println("Response: " + msg)
 		}
 	}
 }
