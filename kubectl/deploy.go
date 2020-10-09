@@ -38,7 +38,7 @@ var moduleNameMappings = map[string]string{
 	"bypass":   "Bypass",
 }
 
-// Create a NF instance with type |funcType| on node |nodeName|,
+// Create an NF instance with type |funcType| on node |nodeName|,
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
 // In Kubernetes, the instance is run as a deployment with name "nodeName-funcType-portId".
 func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string, funcType string, hostPort int,
@@ -321,7 +321,7 @@ func (k8s *KubeController) CreateSchedDeployment(nodeName string, hostPort int) 
 	return deploymentName, nil
 }
 
-// Create a NF instance with type |funcType| on node |nodeName| at core |workerCore|,
+// Create an NF instance with type |funcType| on node |nodeName| at core |workerCore|,
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
 // Essentially, it will call function makeDPDKDeploymentSpec to generate a deployment in kubernetes.
 func (k8s *KubeController) CreateDeployment(nodeName string, funcType string, hostPort int,

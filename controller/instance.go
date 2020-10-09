@@ -95,7 +95,7 @@ func (ins *Instance) connect() error {
 		if err == nil {
 			return nil
 		} else {
-			glog.Warningf("Failed (trial=%s) to connect Instance %s. %v", ins.funcType, err)
+			glog.Warningf("Failed (trial=%s) to connect Instance %s. %v", try, ins.funcType, err)
 		}
 		time.Sleep(ins.backoff.Duration())
 	}

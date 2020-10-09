@@ -35,6 +35,6 @@ service InstanceControl {
 
   // Set cycle parameters for a Bypass module
   rpc SetCycles (BypassArg) returns (EmptyArg) {};
-  // Set batch size and batch number for a NF
+  // Set batch size and batch number for an NF
   rpc SetBatchSize (SetBatchArg) returns (CommandResponse) {}
 }

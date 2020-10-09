@@ -39,7 +39,7 @@ func NewExecutor(FaaSController *controller.FaaSController) *Executor {
 //    - flow |srcIp| |srcPort| |dstIp| |dstPort| |protocol|
 // 9. Set cycle parameters for a Bypass module:
 //    - cycle |nodeName| |port| |cyclePerPacket|
-// 10. Set batch size and number for a NF:
+// 10. Set batch size and number for an NF:
 //    - batch |nodeName| |port| |batchSize| |batchNumber|
 //---------------------------------------------------------
 func (e *Executor) Execute(s string) {

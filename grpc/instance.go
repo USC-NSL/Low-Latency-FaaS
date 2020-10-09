@@ -7,7 +7,7 @@ import (
 	pb "github.com/USC-NSL/Low-Latency-FaaS/proto"
 )
 
-// The handler for sending gRPC requests to a NF instance.
+// The handler for sending gRPC requests to an NF instance.
 // |GRPCClient| is the struct to maintain the gRPC connection.
 type InstanceGRPCHandler struct {
 	GRPCClient

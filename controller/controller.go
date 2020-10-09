@@ -15,6 +15,10 @@ import (
 	glog "github.com/golang/glog"
 )
 
+const (
+	kMaxCountSGroupsStartupPerWorker = 5
+)
+
 // The controller of the FaaS system for NFV.
 // |ToRGRPCHandler| are functions to handle gRPC requests to the ToR switch.
 // |workers| are all the worker nodes (i.e. physical or virtual machines) in the system.
@@ -192,7 +196,7 @@ func (c *FaaSController) AddFlow(user string, srcIP string, dstIP string, srcPor
 	return nil
 }
 
-// Starts running a NF DAG.
+// Prepare to deploy NF chains for an NF DAG.
 func (c *FaaSController) ActivateDAG(user string) error {
 	dag, exists := c.dags[user]
 	if !exists {
@@ -204,18 +208,28 @@ func (c *FaaSController) ActivateDAG(user string) error {
 
 	dag.Activate()
 
-	for {
-		sg := c.getFreeSGroup()
-		if sg == nil {
-			break
-		}
+	// Starts NF chains at all available free SGroups.
+	var wg sync.WaitGroup
+	wg.Add(len(c.workers))
 
-		if sg.worker.countPendingSGroups() <= 5 {
-			sg.worker.createSGroup(sg, dag)
-		} else {
-			time.Sleep(time.Second)
-		}
+	for _, w := range c.workers {
+		go func(w *Worker) {
+			for {
+				sg := w.getFreeSGroup()
+				if sg != nil {
+					for w.countPendingSGroups() >= kMaxCountSGroupsStartupPerWorker {
+						time.Sleep(500 * time.Millisecond)
+					}
+
+					sg.worker.createSGroup(sg, dag)
+				} else {
+					break
+				}
+			}
+			wg.Done()
+		}(w)
 	}
+	wg.Wait()
 
 	glog.Info("DAG is activated.")
 	return nil

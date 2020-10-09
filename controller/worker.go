@@ -220,6 +220,13 @@ func (w *Worker) destroyAllFreeSGroups() {
 	wg.Wait()
 }
 
+func (w *Worker) countFreeSGroups() int {
+	w.sgMutex.Lock()
+	defer w.sgMutex.Unlock()
+
+	return len(w.freeSGroups)
+}
+
 // Returns a free sGroup |sg| in |w.freeSGroups|.
 // |sg| is removed from |w|'s freeSGroups. The caller acquires |sg|.
 // No one else should acquire |sg| at the same time.

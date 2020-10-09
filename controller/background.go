@@ -57,7 +57,7 @@ func (w *Worker) RunFreeSGroupFactory(op chan FaaSOP) {
 
 // Go-routine function for creating a FreeSgroup.
 // Creates and returns a free SGroup |sg|. |sg| initializes a NIC
-// queue (at most 4K packets) which can be used by a NF chain later.
+// queue (at most 4K packets) which can be used by an NF chain later.
 // Blocked until the pod is running.
 func (w *Worker) createFreeSGroup() *SGroup {
 	pcieIdx := w.pciePool.GetNextAvailable()
