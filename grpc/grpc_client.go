@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+const (
+	kGrpcConnTimeout = 10 * time.Second
+	kGrpcReqTimeout  = 1 * time.Second
+)
+
 // A struct to establish or close a connection to a gRPC server.
 type GRPCClient struct {
 	grpcConn *grpc.ClientConn
@@ -19,7 +24,7 @@ func (client *GRPCClient) IsConnEstablished() bool {
 // Starts up a connection to gRPC server with |address|.
 // |address| is a string in the form of "IP:Port".
 func (client *GRPCClient) EstablishConnection(address string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), kGrpcConnTimeout)
 	defer cancel()
 
 	conn, err := grpc.DialContext(ctx, address, grpc.WithInsecure(), grpc.WithBlock())

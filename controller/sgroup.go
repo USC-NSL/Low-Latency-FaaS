@@ -255,8 +255,6 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 	}
 
 	if ready {
-		sg.adjustBatchCount()
-
 		for _, ins := range sg.instances {
 			sg.tids = append(sg.tids, int32(ins.tid))
 		}
@@ -288,6 +286,10 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 		} else {
 			core.addSGroup(sg)
 		}
+
+		time.Sleep(100 * time.Millisecond)
+
+		sg.adjustBatchCount()
 
 		sg.coreID = 1
 		sg.isReady = true

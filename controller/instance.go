@@ -19,6 +19,7 @@ import (
 const (
 	kUninitializedTid = -1
 
+	kMaxRpcConnTrials = 3
 	// The max number of trials of making a gRPC call to an instance
 	kMaxRpcCallTrials = 5
 )
@@ -87,9 +88,24 @@ func (ins *Instance) ID() int {
 	return ins.port
 }
 
+func (ins *Instance) connect() error {
+	ins.backoff.Reset()
+	for try := 0; try < kMaxRpcConnTrials; try += 1 {
+		err := ins.InstanceGRPCHandler.EstablishConnection(ins.address)
+		if err == nil {
+			return nil
+		} else {
+			glog.Warningf("Failed (trial=%s) to connect Instance %s. %v", ins.funcType, err)
+		}
+		time.Sleep(ins.backoff.Duration())
+	}
+
+	return fmt.Errorf("Failed all trials to connect Instance %s", ins.funcType)
+}
+
 func (ins *Instance) setCycles(cyclesPerPacket int) error {
 	if !ins.InstanceGRPCHandler.IsConnEstablished() {
-		if err := ins.InstanceGRPCHandler.EstablishConnection(ins.address); err != nil {
+		if err := ins.connect(); err != nil {
 			return err
 		}
 	}
@@ -100,7 +116,7 @@ func (ins *Instance) setCycles(cyclesPerPacket int) error {
 		if err == nil {
 			return nil
 		} else {
-			glog.Infof("Failed (trial=%d) to set cycle for Instance %s. %v", try, ins.funcType, err)
+			glog.Warningf("Failed (trial=%d) to set cycle for Instance %s. %v", try, ins.funcType, err)
 		}
 		time.Sleep(ins.backoff.Duration())
 	}
@@ -110,7 +126,7 @@ func (ins *Instance) setCycles(cyclesPerPacket int) error {
 
 func (ins *Instance) setBatch(batchSize int, batchNumber int) error {
 	if !ins.InstanceGRPCHandler.IsConnEstablished() {
-		if err := ins.InstanceGRPCHandler.EstablishConnection(ins.address); err != nil {
+		if err := ins.connect(); err != nil {
 			return err
 		}
 	}
@@ -123,9 +139,9 @@ func (ins *Instance) setBatch(batchSize int, batchNumber int) error {
 		if err == nil && msg == "" {
 			return nil
 		} else if err != nil {
-			glog.Errorf("Failed (trial=%d) to set batch for Instance %s. %v", try, ins.funcType, err)
+			glog.Warningf("Failed (trial=%d) to set batch for Instance %s. %v", try, ins.funcType, err)
 		} else {
-			glog.Errorf("Error response: " + msg)
+			glog.Warningf("Error response: " + msg)
 		}
 		time.Sleep(ins.backoff.Duration())
 	}
