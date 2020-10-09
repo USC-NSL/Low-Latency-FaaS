@@ -259,10 +259,17 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 			sg.tids = append(sg.tids, int32(ins.tid))
 		}
 
-		// Sends gRPC request to inform the scheduler.
-		glog.Infof("SGroup %d is ready. Notify the scheduler", sg.ID())
+		sg.adjustBatchCount()
 
 		w := sg.worker
+		w.addSGroupConns()
+
+		for !w.isAllSGroupsConnected() {
+			time.Sleep(1 * time.Second)
+		}
+
+		// Sends gRPC request to inform the scheduler.
+		glog.Infof("SGroup %d is ready. Notify the scheduler", sg.ID())
 
 		// Calls gRPC functions directly to avoid deadlocks.
 		if _, err := w.SetupChain(sg.tids); err != nil {
@@ -288,8 +295,6 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 		}
 
 		time.Sleep(100 * time.Millisecond)
-
-		sg.adjustBatchCount()
 
 		sg.coreID = 1
 		sg.isReady = true

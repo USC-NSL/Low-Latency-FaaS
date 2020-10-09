@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	kMaxCountSGroupsStartupPerWorker = 5
+	kMaxCountSGroupsStartupPerWorker = 20
 )
 
 // The controller of the FaaS system for NFV.

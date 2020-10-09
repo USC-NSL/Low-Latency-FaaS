@@ -46,6 +46,7 @@ type Worker struct {
 	sched            *Instance
 	cores            map[int]*Core
 	sgroups          SGroupSlice
+	sgroupConns      int
 	freeSGroups      SGroupSlice
 	instancePortPool *utils.IndexPool
 	pciePool         *utils.IndexPool
@@ -72,6 +73,7 @@ func NewWorker(name string, ip string, coreNumOffset int, coreNum int, pcie []st
 		switchPort:       uint32(switchPortNum),
 		cores:            make(map[int]*Core),
 		sgroups:          make([]*SGroup, 0),
+		sgroupConns:      0,
 		freeSGroups:      make([]*SGroup, 0),
 		instancePortPool: utils.NewIndexPool(50052, 1000),
 		pciePool:         utils.NewIndexPool(0, len(perWorkerPCIeDevices)),
@@ -284,6 +286,20 @@ func (w *Worker) countPendingSGroups() int {
 		}
 	}
 	return cnt
+}
+
+func (w *Worker) addSGroupConns() {
+	w.sgMutex.Lock()
+	defer w.sgMutex.Unlock()
+
+	w.sgroupConns += 1
+}
+
+func (w *Worker) isAllSGroupsConnected() bool {
+	w.sgMutex.Lock()
+	defer w.sgMutex.Unlock()
+
+	return w.sgroupConns == len(w.sgroups)
 }
 
 func (w *Worker) getSGroup(groupID int) *SGroup {
