@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	kGrpcConnTimeout = 20 * time.Second
+	kGrpcConnTimeout = 5 * time.Second
 	kGrpcReqTimeout  = 1 * time.Second
 )
 
