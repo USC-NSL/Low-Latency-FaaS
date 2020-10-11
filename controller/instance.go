@@ -95,7 +95,7 @@ func (ins *Instance) connect() error {
 		if err == nil {
 			return nil
 		} else {
-			glog.Warningf("%v (%s, trial=%d)", err, ins.sg.worker.name, try)
+			glog.Warningf("%v (%s, idx=%d, trial=%d)", err, ins.sg.worker.name, ins.sg.groupID, try)
 		}
 		time.Sleep(ins.backoff.Duration())
 	}

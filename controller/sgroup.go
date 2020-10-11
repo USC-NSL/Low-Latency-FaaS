@@ -238,8 +238,11 @@ func (sg *SGroup) adjustBatchCount() {
 			}
 		}
 	}
+	glog.Infof("Finish setting the batch size for SGroup (w:%s, idx:%d)", sg.worker.name, sg.groupID)
 }
 
+// Note: the corresponding worker's sgMutex is likely held by the background
+// scheduler. Do not acquire the lock directly.
 func (sg *SGroup) UpdateTID(port int, tid int) {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
@@ -259,17 +262,24 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 			sg.tids = append(sg.tids, int32(ins.tid))
 		}
 
+		glog.Infof("SGroup (w:%s, idx:%d) is ready. Connecting...", sg.worker.name, sg.ID())
 		sg.adjustBatchCount()
 
 		w := sg.worker
-		w.addSGroupConns()
+		w.upMutex.Lock()
+		w.sgroupConns += 1
+		w.upMutex.Unlock()
 
-		for !w.isAllSGroupsConnected() {
-			time.Sleep(1 * time.Second)
+		for {
+			if !w.isAllSGroupsConnected() {
+				time.Sleep(2 * time.Second)
+			} else {
+				break
+			}
 		}
 
 		// Sends gRPC request to inform the scheduler.
-		glog.Infof("SGroup %d is ready. Notify the scheduler", sg.ID())
+		glog.Infof("Notify the scheduler to manage SGroup (w:%s, idx:%d)", sg.worker.name, sg.ID())
 
 		// Calls gRPC functions directly to avoid deadlocks.
 		if _, err := w.SetupChain(sg.tids); err != nil {

@@ -35,7 +35,7 @@ const (
 // |insStartupPool| is a pool for instances that are on start-up.
 // |op| is a channle to FreeSGroup maintainer(go routine).
 // |wg| is a waiting group for all go routines of this worker.
-// |sgMutex| is for protecting |sgroups| and |freeSGroups|.
+// |sgMutex| only protects |sgroups| and |freeSGroups|.
 type Worker struct {
 	grpc.VSwitchGRPCHandler
 	grpc.SchedulerGRPCHandler
@@ -46,7 +46,9 @@ type Worker struct {
 	sched            *Instance
 	cores            map[int]*Core
 	sgroups          SGroupSlice
-	sgroupConns      int
+	sgroupConns      int32
+	sgroupTarget     int32
+	upMutex          sync.Mutex
 	freeSGroups      SGroupSlice
 	instancePortPool *utils.IndexPool
 	pciePool         *utils.IndexPool
@@ -73,7 +75,8 @@ func NewWorker(name string, ip string, coreNumOffset int, coreNum int, pcie []st
 		switchPort:       uint32(switchPortNum),
 		cores:            make(map[int]*Core),
 		sgroups:          make([]*SGroup, 0),
-		sgroupConns:      0,
+		sgroupConns:      int32(0),
+		sgroupTarget:     int32(0),
 		freeSGroups:      make([]*SGroup, 0),
 		instancePortPool: utils.NewIndexPool(50052, 1000),
 		pciePool:         utils.NewIndexPool(0, len(perWorkerPCIeDevices)),
@@ -193,9 +196,10 @@ func (w *Worker) destroyInstance(ins *Instance) error {
 }
 
 func (w *Worker) createAllFreeSGroups() {
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 6; i++ {
 		//for i := 0; i < w.pciePool.Size(); i++ {
 		w.op <- FREE_SGROUP
+		w.sgroupTarget += 1
 	}
 }
 
@@ -288,18 +292,12 @@ func (w *Worker) countPendingSGroups() int {
 	return cnt
 }
 
-func (w *Worker) addSGroupConns() {
-	w.sgMutex.Lock()
-	defer w.sgMutex.Unlock()
-
-	w.sgroupConns += 1
-}
-
 func (w *Worker) isAllSGroupsConnected() bool {
-	w.sgMutex.Lock()
-	defer w.sgMutex.Unlock()
+	w.upMutex.Lock()
+	defer w.upMutex.Unlock()
 
-	return w.sgroupConns == len(w.sgroups)
+	glog.Infof("%s: %d %d", w.name, w.sgroupConns, w.sgroupTarget)
+	return w.sgroupConns == w.sgroupTarget
 }
 
 func (w *Worker) getSGroup(groupID int) *SGroup {
