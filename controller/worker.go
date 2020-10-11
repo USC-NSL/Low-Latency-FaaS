@@ -53,6 +53,7 @@ type Worker struct {
 	instancePortPool *utils.IndexPool
 	pciePool         *utils.IndexPool
 	insStartupPool   *InstancePool
+	bgTraffic        bool
 	op               chan FaaSOP
 	schedOp          chan FaaSOP
 	wg               sync.WaitGroup
@@ -81,6 +82,7 @@ func NewWorker(name string, ip string, coreNumOffset int, coreNum int, pcie []st
 		instancePortPool: utils.NewIndexPool(50052, 1000),
 		pciePool:         utils.NewIndexPool(0, len(perWorkerPCIeDevices)),
 		insStartupPool:   NewInstancePool(),
+		bgTraffic:        false,
 		op:               make(chan FaaSOP, 64),
 		schedOp:          make(chan FaaSOP, 64),
 	}

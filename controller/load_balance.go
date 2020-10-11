@@ -21,6 +21,17 @@ import (
 func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 	srcPort uint32, dstPort uint32, proto uint32) (uint32, string, error) {
 	//return 0, "00:00:00:00:00:01", nil
+
+	if dstPort < 2000 { // Serve background traffic.
+		sg := c.findAvailableSGroupOnIdleWorker()
+		if sg != nil {
+			if !sg.IsActive() {
+				sg.SetActive()
+			}
+			return sg.worker.switchPort, DefaultDstMACs[sg.pcieIdx], nil
+		}
+	}
+
 	var dag *DAG = nil
 	for _, d := range c.dags {
 		if d.Match(srcIP, dstIP, srcPort, dstPort, proto) {
@@ -163,5 +174,19 @@ func (g *DAG) findAvailableSGroupHighLoadFirst() *SGroup {
 		}
 	}
 
+	return selected
+}
+
+// Selects the first SGroup from a worker w/o backgroun traffic.
+func (c *FaaSController) findAvailableSGroupOnIdleWorker() *SGroup {
+	var selected *SGroup = nil
+	for _, w := range c.workers {
+		if !w.bgTraffic {
+			if len(w.sgroups) > 0 {
+				selected = w.sgroups[0]
+			}
+			w.bgTraffic = true
+		}
+	}
 	return selected
 }
