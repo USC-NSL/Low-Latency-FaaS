@@ -157,10 +157,10 @@ func (e *Executor) Execute(s string) {
 				e.FaaSController.ConnectNFs(user, nf2, nf3)
 				e.FaaSController.AddFlow(user, "", "", 0, 8080, 0)
 				e.FaaSController.ActivateDAG(user)
-			} else if words[2] == "c" {
+			} else if words[1] == "c" {
 				user := "exp-c"
 				nf1 := e.FaaSController.AddDummyNF(user, "acl")
-				nf2 := e.FaaSController.AddDummyNF(user, "nat")
+				nf2 := e.FaaSController.AddNF(user, "nat")
 				e.FaaSController.ConnectNFs(user, nf1, nf2)
 				e.FaaSController.AddFlow(user, "", "", 0, 8080, 0)
 				e.FaaSController.ActivateDAG(user)

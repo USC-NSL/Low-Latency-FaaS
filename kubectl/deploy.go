@@ -121,6 +121,9 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string, funcType stri
 									"--vport_out_idx=" + vPortOut,
 									"--faas_grpc_server=" + kFaaSControllerIP + ":" + kFaaSControllerPort,
 									"--monitor_grpc_server=" + kFaaSControllerIP + ":" + kFaaSControllerPort,
+									"--redis_ip=128.105.144.32",
+									"--redis_port=6380",
+									"--redis_password=faas-nfv-cool",
 								},
 								"volumeMounts": []map[string]interface{}{
 									{ // volume 0

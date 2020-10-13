@@ -22,8 +22,8 @@ const (
 	// The context switch time in CPU cycles
 	CONTEXT_SWITCH_CYCLE_COST_PP = 5100
 
-	// A SGroup turns ideleif it has been idle for at least 10 traffic samples.
-	MIN_IDLE_DURATION = 10
+	// A SGroup turns idle if it has been idle for this amount of samples.
+	MIN_IDLE_DURATION = 30
 )
 
 // These are default PCIe devices in a host. Each of these devices has its
