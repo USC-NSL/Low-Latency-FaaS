@@ -29,6 +29,7 @@ func (c *FaaSController) UpdateFlow(srcIP string, dstIP string,
 			if !sg.IsActive() {
 				sg.SetActive()
 			}
+			glog.Infof("Background traffic to %s via port %d", sg.worker.name, sg.worker.switchPort)
 			return sg.worker.switchPort, DefaultDstMACs[sg.pcieIdx], nil
 		}
 	}

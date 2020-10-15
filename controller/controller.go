@@ -351,7 +351,10 @@ func (c *FaaSController) InstanceUpdateStats(nodeName string, port int, qlen int
 	}
 
 	ins.UpdateTrafficInfo(qlen, kpps, cycle)
-	ins.sg.UpdateTrafficInfo()
+	// Update the chain info only upon a egress node updates.
+	if ins.isEgress {
+		ins.sg.UpdateTrafficInfo()
+	}
 	return nil
 }
 

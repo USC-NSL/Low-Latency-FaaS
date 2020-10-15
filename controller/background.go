@@ -115,14 +115,14 @@ func (w *Worker) createSGroup(sg *SGroup, dag *DAG) {
 	for i, nf := range dag.chains {
 		funcType := nf.funcType
 		cycleCost := nf.cycles
-		isPrimary := "false"
-		isIngress := "false"
-		isEgress := "false"
+		isPrimary := false
+		isIngress := false
+		isEgress := false
 		if i == 0 {
-			isIngress = "true"
+			isIngress = true
 		}
 		if i == len(dag.chains)-1 {
-			isEgress = "true"
+			isEgress = true
 		}
 		vPortIncIdx, vPortOutIdx := i, i+1
 

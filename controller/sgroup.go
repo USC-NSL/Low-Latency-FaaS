@@ -23,7 +23,8 @@ const (
 	CONTEXT_SWITCH_CYCLE_COST_PP = 5100
 
 	// A SGroup turns idle if it has been idle for this amount of samples.
-	MIN_IDLE_DURATION = 30
+	// By default, the monitoring period is 300ms.
+	MIN_IDLE_DURATION = 15
 )
 
 // These are default PCIe devices in a host. Each of these devices has its
@@ -144,9 +145,9 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 		coreID:           INVALID_CORE_ID,
 	}
 
-	isPrimary := "true"
-	isIngress := "false"
-	isEgress := "false"
+	isPrimary := true
+	isIngress := false
+	isEgress := false
 	vPortIncIdx := 0
 	vPortOutIdx := 0
 	ins, err := w.createInstance("prim", 0, pcieIdx, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
@@ -246,6 +247,10 @@ func (sg *SGroup) adjustBatchCount() {
 func (sg *SGroup) UpdateTID(port int, tid int) {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
+
+	if sg.isReady { // Ignore duplicated messages.
+		return
+	}
 
 	ready := true
 	for _, ins := range sg.instances {

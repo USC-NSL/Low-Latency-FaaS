@@ -141,7 +141,7 @@ func (w *Worker) createSched() error {
 	if err != nil {
 		return err
 	}
-	w.sched = newInstance("sched", 0, w.ip, port, podName)
+	w.sched = newInstance("sched", false, false, 0, w.ip, port, podName)
 
 	schedAddr := fmt.Sprintf("%s:%d", w.ip, port)
 	start := time.Now()
@@ -166,17 +166,20 @@ func (w *Worker) createSched() error {
 // Creates an NF instance |ins| with type |funcType|. This instance
 // is stored in the worker's |insStartupPool|. The controller waits
 // for its |tid| sent from its NF thread.
-func (w *Worker) createInstance(funcType string, cycleCost int, pcieIdx int, isPrimary string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) (*Instance, error) {
+func (w *Worker) createInstance(funcType string, cycleCost int, pcieIdx int, isPrimary bool, isIngress bool, isEgress bool, vPortIncIdx int, vPortOutIdx int) (*Instance, error) {
 	// Both |IndexPool| and |InstancePool| are thread-safe types.
 	port := w.instancePortPool.GetNextAvailable()
-	podName, err := kubectl.K8sHandler.CreateDeployment(w.name, funcType, port, w.pcie[pcieIdx], isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+	podName, err := kubectl.K8sHandler.CreateDeployment(
+		w.name, funcType, port, w.pcie[pcieIdx],
+		isPrimary, isIngress, isEgress,
+		vPortIncIdx, vPortOutIdx)
 	if err != nil {
 		w.instancePortPool.Free(port)
 		return nil, err
 	}
 
-	ins := newInstance(funcType, cycleCost, w.ip, port, podName)
-	if isPrimary != "true" {
+	ins := newInstance(funcType, isIngress, isEgress, cycleCost, w.ip, port, podName)
+	if isPrimary {
 		w.insStartupPool.add(ins)
 	}
 

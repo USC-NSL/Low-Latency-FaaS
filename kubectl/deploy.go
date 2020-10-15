@@ -41,8 +41,8 @@ var moduleNameMappings = map[string]string{
 // Create an NF instance with type |funcType| on node |nodeName|,
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
 // In Kubernetes, the instance is run as a deployment with name "nodeName-funcType-portId".
-func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string, funcType string, hostPort int,
-	pcie string, isPrimary string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) unstructured.Unstructured {
+func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string,
+	funcType string, hostPort int, pcie string, isPrimary bool, isIngress bool, isEgress bool, vPortIncIdx int, vPortOutIdx int) unstructured.Unstructured {
 	if kFaaSControllerIP == "" {
 		glog.Errorf("kubectl isn't aware of FaaS master node's IP. RPCs from containers will fail to reach the master node.")
 	}
@@ -112,9 +112,9 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string, funcType stri
 									"--node_name=" + nodeName,
 									"--port=" + portId,
 									"--module=" + moduleName,
-									"--primary=" + isPrimary,
-									"--ingress=" + isIngress,
-									"--egress=" + isEgress,
+									"--primary=" + strconv.FormatBool(isPrimary),
+									"--ingress=" + strconv.FormatBool(isIngress),
+									"--egress=" + strconv.FormatBool(isEgress),
 									"--isolation_key=" + pcie,
 									"--device=" + pcie,
 									"--vport_inc_idx=" + vPortInc,
@@ -327,8 +327,8 @@ func (k8s *KubeController) CreateSchedDeployment(nodeName string, hostPort int) 
 // Create an NF instance with type |funcType| on node |nodeName| at core |workerCore|,
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
 // Essentially, it will call function makeDPDKDeploymentSpec to generate a deployment in kubernetes.
-func (k8s *KubeController) CreateDeployment(nodeName string, funcType string, hostPort int,
-	pcie string, isPrimary string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) (string, error) {
+func (k8s *KubeController) CreateDeployment(nodeName string,
+	funcType string, hostPort int, pcie string, isPrimary bool, isIngress bool, isEgress bool, vPortIncIdx int, vPortOutIdx int) (string, error) {
 	api := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 	deploy := k8s.dynamicClient.Resource(api).Namespace(k8s.namespace)
 

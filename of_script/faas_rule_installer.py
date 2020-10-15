@@ -53,7 +53,9 @@ gflags.DEFINE_string("faas_ip", "128.105.145.66", "FaaS Controller's IP")
 gflags.DEFINE_string("faas_port", "10515", "FaaS Controller service's Port")
 gflags.DEFINE_boolean("verbose", False, "Verbose logs")
 gflags.DEFINE_boolean("pkt", True, "Monitor the number of packets from each flow")
-gflags.DEFINE_integer("inport", 44, "The switch port as the traffic ingress")
+gflags.DEFINE_integer("inport", 61, "The switch port as the traffic ingress")
+
+worker_ports = [27, 43]
 
 kFaaSServerAddress = "%s:%s" %(FLAGS.faas_ip, FLAGS.faas_port)
 kSwitchServiceOn = False
@@ -219,7 +221,9 @@ class FaaSRuleInstaller(app_manager.RyuApp):
 
                 if ofctl:
                     try:
-                        flow_ret = ofctl.get_flow_stats(dp, self.waiters, None)
+                        flow_ret = []
+                        if FLAGS.verbose:
+                            flow_ret = ofctl.get_flow_stats(dp, self.waiters, None)
                         port_ret = ofctl.get_port_stats(dp, self.waiters, None)
                     except:
                         DLOG.error("Failed to dump port info")
@@ -267,9 +271,9 @@ class FaaSRuleInstaller(app_manager.RyuApp):
 
         if FLAGS.verbose:
             for flow in body:
-                DLOG.info('match:%17s actions:%17s pkts:%8d bytes:%8d',
+                DLOG.info('match:%17s actions:%17s pkts:%8d bytes:%8d priority:%8d table id:%8d',
                           str(flow["match"]), str(flow["actions"]), 
-                          flow["packet_count"], flow["byte_count"])
+                          flow["packet_count"], flow["byte_count"], flow["priority"], flow["table_id"])
         DLOG.info("Total %d flows", len(body))
 
     def _print_formatted_port_stats(self, port_stats):
@@ -389,16 +393,40 @@ class FaaSRuleInstaller(app_manager.RyuApp):
         actions_0 = []
         self._add_flow(datapath, match_0, actions_0, 100, priority=0, idle_timeout=0)
 
+        match_10 = parser.OFPMatch()
+        actions_10 = [parser.OFPActionOutput(FLAGS.inport)]
+        self._add_flow(datapath, match_10, actions_10, 100, priority=0, idle_timeout=0)
+        match_11 = parser.OFPMatch(FLAGS.inport)
+        actions_11 = []
+        self._add_flow(datapath, match_11, actions_11, 100, priority=0, idle_timeout=0)
+        match_12 = parser.OFPMatch(FLAGS.inport)
+        actions_12 = [parser.OFPActionOutput(FLAGS.inport)]
+        self._add_flow(datapath, match_12, actions_12, 100, priority=0, idle_timeout=0)
+
         # The extension table (table ID: 200)
         # Installs the table-miss flow entry for ingress unseen traffic.
         match_1 = parser.OFPMatch(in_port=FLAGS.inport)
         actions_1 = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, ofproto.OFPCML_NO_BUFFER)]
         self._add_flow(datapath, match_1, actions_1, 200, priority=0, idle_timeout=0)
 
-        # Installs the egress rules for egress traffic.
-        match_2 = parser.OFPMatch(eth_dst="00:15:4d:12:2b:f4", eth_type=ether_types.ETH_TYPE_IP)
-        actions_2 = [parser.OFPActionOutput(FLAGS.inport)]
+        match_2 = parser.OFPMatch(eth_type=33024, vlan_vid=(0x1000, 0x1111))
+        actions_2 = [parser.OFPActionPopVlan(), parser.OFPActionOutput(27)]
         self._add_flow(datapath, match_2, actions_2, 200, priority=3, idle_timeout=0)
+
+        for port in worker_ports:
+            match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, ip_proto=6, tcp_dst=1000)
+            actions = [parser.OFPActionOutput(port)]
+            #self._add_flow(datapath, match, actions, 200, priority=3, idle_timeout=0)
+
+            for i in range(1, 16):
+                match = parser.OFPMatch(eth_dst="%x:00:00:00:00:%02d" %(port, i), eth_type=ether_types.ETH_TYPE_IP)
+                actions = [parser.OFPActionSetField(eth_dst="00:00:00:00:00:%02d" %(i)), parser.OFPActionOutput(port)]
+                self._add_flow(datapath, copy.deepcopy(match), copy.deepcopy(actions), 200, priority=4, idle_timeout=0)
+
+        # Installs the egress rules for egress traffic.
+        match_3 = parser.OFPMatch(eth_dst="00:15:4d:12:2b:f4", eth_type=ether_types.ETH_TYPE_IP)
+        actions_3 = [parser.OFPActionOutput(FLAGS.inport)]
+        self._add_flow(datapath, match_3, actions_3, 200, priority=4, idle_timeout=0)
 
         if kSwitchServiceOn:
             self._grpc_server.start()
@@ -455,6 +483,7 @@ class FaaSRuleInstaller(app_manager.RyuApp):
         self._delete_flow(datapath, 1, match, actions, 200)
         self._delete_flow(datapath, 2, match, actions, 200)
         self._delete_flow(datapath, 3, match, actions, 200)
+        self._delete_flow(datapath, 4, match, actions, 200)
         DLOG.info("Delete all existing flows..")
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
@@ -464,11 +493,17 @@ class FaaSRuleInstaller(app_manager.RyuApp):
         before the rule is installed, subsequent packets may arrive and
         be forwarded here. The controller considers them as losses.
         """
-        # msg = ev.msg
+        self._lost_pkts_counter += 1
+        msg = ev.msg
         # datapath = msg.datapath
         # ofproto = datapath.ofproto
         # parser = datapath.ofproto_parser
-        self._lost_pkts_counter += 1
+        pkt = packet.Packet(msg.data)
+        eth_pkt = pkt.get_protocol(ethernet.ethernet)
+        eth_src = eth_pkt.src
+        eth_dst = eth_pkt.dst
+        DLOG.info("pkt_in with eth_dst=%s" %(eth_dst))
+        return
 
     def process_new_flow(self, flow_request_str):
         """ Install a flow to avoid packet_in next time.
@@ -490,7 +525,10 @@ class FaaSRuleInstaller(app_manager.RyuApp):
                 ipv4_src=flow_request[0], ipv4_dst=flow_request[1],
                 ip_proto=int(flow_request[2]),
                 tcp_src=int(flow_request[3]), tcp_dst=int(flow_request[4]))
-        self._add_flow(datapath, match, actions, 200, priority=2, idle_timeout=kDefaultIdleTimeout)
+        if int(flow_request[4]) < 2000:
+            self._add_flow(datapath, match, actions, 200, priority=2, idle_timeout=0)
+        else:
+            self._add_flow(datapath, match, actions, 200, priority=2, idle_timeout=kDefaultIdleTimeout)
 
 
 if __name__ == "__main__":

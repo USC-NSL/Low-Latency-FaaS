@@ -42,6 +42,8 @@ type Instance struct {
 	grpc.InstanceGRPCHandler
 	funcType       string
 	isNF           bool
+	isIngress      bool
+	isEgress       bool
 	port           int
 	address        string
 	podName        string
@@ -56,10 +58,12 @@ type Instance struct {
 	backoff        *utils.Backoff
 }
 
-func newInstance(funcType string, cycleCost int, hostIp string, port int, podName string) *Instance {
+func newInstance(funcType string, ingress bool, egress bool, cycleCost int, hostIp string, port int, podName string) *Instance {
 	instance := Instance{
 		funcType:       funcType,
 		isNF:           (funcType != "prim" && funcType != "sched"),
+		isIngress:      ingress,
+		isEgress:       egress,
 		port:           port,
 		address:        hostIp + ":" + strconv.Itoa(port),
 		podName:        podName,
