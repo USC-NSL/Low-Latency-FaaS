@@ -179,7 +179,7 @@ func (w *Worker) createInstance(funcType string, cycleCost int, pcieIdx int, isP
 	}
 
 	ins := newInstance(funcType, isIngress, isEgress, cycleCost, w.ip, port, podName)
-	if isPrimary {
+	if !isPrimary {
 		w.insStartupPool.add(ins)
 	}
 
