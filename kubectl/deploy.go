@@ -340,7 +340,7 @@ func (k8s *KubeController) CreateDeployment(nodeName string,
 		return "", err
 	}
 
-	glog.Infof("Create instance [%s] (pcie=%s,ingress=%s,egress=%s) on %s with port %d successfully.\n",
+	glog.Infof("Create instance [%s] (pcie=%s,ingress=%v,egress=%v) on %s with port %d successfully.\n",
 		funcType, pcie, isIngress, isEgress, nodeName, hostPort)
 	return deploymentName, nil
 }
