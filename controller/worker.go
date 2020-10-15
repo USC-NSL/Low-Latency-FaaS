@@ -46,8 +46,8 @@ type Worker struct {
 	sched            *Instance
 	cores            map[int]*Core
 	sgroups          SGroupSlice
-	sgroupConns      int32
-	sgroupTarget     int32
+	sgroupConns      []int
+	sgroupTarget     int
 	upMutex          sync.Mutex
 	freeSGroups      SGroupSlice
 	instancePortPool *utils.IndexPool
@@ -76,8 +76,8 @@ func NewWorker(name string, ip string, coreNumOffset int, coreNum int, pcie []st
 		switchPort:       uint32(switchPortNum),
 		cores:            make(map[int]*Core),
 		sgroups:          make([]*SGroup, 0),
-		sgroupConns:      int32(0),
-		sgroupTarget:     int32(0),
+		sgroupConns:      make([]int, 0),
+		sgroupTarget:     int(0),
 		freeSGroups:      make([]*SGroup, 0),
 		instancePortPool: utils.NewIndexPool(50052, 1000),
 		pciePool:         utils.NewIndexPool(0, len(perWorkerPCIeDevices)),
@@ -125,8 +125,13 @@ func (w *Worker) String() string {
 	}
 
 	info += "\n SGroups:"
-	for _, sg := range w.sgroups {
-		info += fmt.Sprintf("\n  %s", sg)
+	for id := 0; id < len(w.sgroups); id++ {
+		for _, sg := range w.sgroups {
+			if sg.groupID == id {
+				info += fmt.Sprintf("\n  %s", sg)
+				break
+			}
+		}
 	}
 
 	info += fmt.Sprintf("\n %d remaining free SGroups", len(w.freeSGroups))
@@ -301,8 +306,8 @@ func (w *Worker) isAllSGroupsConnected() bool {
 	w.upMutex.Lock()
 	defer w.upMutex.Unlock()
 
-	glog.Infof("%s: %d %d", w.name, w.sgroupConns, w.sgroupTarget)
-	return w.sgroupConns == w.sgroupTarget
+	glog.Infof("%s: %v, target:%d", w.name, w.sgroupConns, w.sgroupTarget)
+	return len(w.sgroupConns) == w.sgroupTarget
 }
 
 func (w *Worker) getSGroup(groupID int) *SGroup {

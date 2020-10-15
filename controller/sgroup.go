@@ -272,12 +272,12 @@ func (sg *SGroup) UpdateTID(port int, tid int) {
 
 		w := sg.worker
 		w.upMutex.Lock()
-		w.sgroupConns += 1
+		w.sgroupConns = append(w.sgroupConns, sg.groupID)
 		w.upMutex.Unlock()
 
 		for {
 			if !w.isAllSGroupsConnected() {
-				time.Sleep(2 * time.Second)
+				time.Sleep(4 * time.Second)
 			} else {
 				break
 			}
