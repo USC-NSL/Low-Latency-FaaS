@@ -3,6 +3,7 @@ package kubectl
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	utils "github.com/USC-NSL/Low-Latency-FaaS/utils"
 	glog "github.com/golang/glog"
@@ -326,7 +327,7 @@ func (k8s *KubeController) CreateSchedDeployment(nodeName string, hostPort int) 
 
 // Create an NF instance with type |funcType| on node |nodeName| at core |workerCore|,
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
-// Essentially, it will call function makeDPDKDeploymentSpec to generate a deployment in kubernetes.
+// (Try for at most 20 seconds.)
 func (k8s *KubeController) CreateDeployment(nodeName string,
 	funcType string, hostPort int, pcie string, isPrimary bool, isIngress bool, isEgress bool, vPortIncIdx int, vPortOutIdx int) (string, error) {
 	api := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
@@ -335,14 +336,19 @@ func (k8s *KubeController) CreateDeployment(nodeName string,
 	spec := k8s.makeDPDKDeploymentSpec(nodeName, funcType, hostPort, pcie, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, funcType, strconv.Itoa(hostPort))
 
-	_, err := deploy.Create(&spec, metav1.CreateOptions{})
-	if err != nil {
-		return "", err
+	var err error
+	start := time.Now()
+	for time.Now().Unix()-start.Unix() < 20 {
+		_, err = deploy.Create(&spec, metav1.CreateOptions{})
+		if err == nil { // Successful
+			glog.Infof("Deploy instance [%s] (pcie=%s,ingress=%v,egress=%v) on %s with port %d.\n",
+				funcType, pcie, isIngress, isEgress, nodeName, hostPort)
+			return deploymentName, nil
+		}
 	}
-
-	glog.Infof("Create instance [%s] (pcie=%s,ingress=%v,egress=%v) on %s with port %d successfully.\n",
-		funcType, pcie, isIngress, isEgress, nodeName, hostPort)
-	return deploymentName, nil
+	glog.Errorf("Failed to deploy instance [%s] (pcie=%s,ingress=%v,egress=%v) on %s with port %d. %v\n",
+		funcType, pcie, isIngress, isEgress, nodeName, hostPort, err)
+	return "", err
 }
 
 // Delete a kubernetes deployment with the name |deploymentName|.

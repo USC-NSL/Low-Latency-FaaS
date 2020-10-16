@@ -135,14 +135,21 @@ func (w *Worker) createSGroup(sg *SGroup, dag *DAG) {
 			return
 		}
 
+		// Set ins.sg = sg
 		sg.AppendInstance(ins)
 	}
 
-	// Adds |sg| to |w|'s active |sgroups|, and |dag|'s
-	// active |sgroups|.
+	// Add |sg| to |w.sgroups|.
 	w.sgMutex.Lock()
 	w.sgroups = append(w.sgroups, sg)
+	w.sgroupTarget += 1
 	w.sgMutex.Unlock()
 
+	// Add |sg| to |dag|'s active |sgroups|.
 	dag.sgroups = append(dag.sgroups, sg)
+
+	// Check whether the sg is ready to serve traffic.
+	// If yes, notify the cooperative scheduler.
+	sg.isComplete = true
+	sg.preprocessBeforeReady()
 }

@@ -327,11 +327,14 @@ func (c *FaaSController) InstanceSetUp(nodeName string, port int, tid int) error
 	}
 
 	ins := w.insStartupPool.get(port)
-	if ins == nil || ins.sg == nil {
+	if ins == nil {
 		return errors.New(fmt.Sprintf("SGroup not found"))
 	}
+	ins.setTid(tid)
 
-	ins.sg.UpdateTID(port, tid)
+	if ins.sg != nil {
+		ins.sg.preprocessBeforeReady()
+	}
 	return nil
 }
 

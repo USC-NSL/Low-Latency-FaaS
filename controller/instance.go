@@ -182,3 +182,10 @@ func (ins *Instance) getCycle() int {
 
 	return ins.cycle
 }
+
+func (ins *Instance) setTid(tid int) {
+	ins.mutex.Lock()
+	defer ins.mutex.Unlock()
+
+	ins.tid = tid
+}

@@ -101,6 +101,7 @@ type SGroup struct {
 	manager          *Instance
 	groupID          int
 	pcieIdx          int
+	isComplete       bool
 	isReady          bool
 	isActive         bool
 	isSched          bool
@@ -126,6 +127,7 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 	sg := SGroup{
 		groupID:          pcieIdx,
 		pcieIdx:          pcieIdx,
+		isComplete:       false,
 		isReady:          false,
 		isActive:         false,
 		isSched:          false,
@@ -242,23 +244,26 @@ func (sg *SGroup) adjustBatchCount() {
 	glog.Infof("Finish setting the batch size for SGroup (w:%s, idx:%d)", sg.worker.name, sg.groupID)
 }
 
-// Note: the corresponding worker's sgMutex is likely held by the background
-// scheduler. Do not acquire the lock directly.
-func (sg *SGroup) UpdateTID(port int, tid int) {
+// Note: the corresponding worker's sgMutex is likely held by the
+// background scheduler. Do not acquire the lock directly.
+// Checks if the sg is ready to serve traffic.
+// (1) are all instances up?
+// (2) are all instances in this worker connected?
+// (3) are all instances detached on core 0?
+func (sg *SGroup) preprocessBeforeReady() {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
-	if sg.isReady { // Ignore duplicated messages.
+	// Ignore unnecessary and duplicated calls.
+	if !sg.isComplete || sg.isReady {
 		return
 	}
 
 	ready := true
 	for _, ins := range sg.instances {
-		if ins.ID() == port {
-			ins.tid = tid
-		}
 		if ins.tid == kUninitializedTid {
 			ready = false
+			break
 		}
 	}
 
