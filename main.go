@@ -15,9 +15,21 @@ import (
 	glog "github.com/golang/glog"
 )
 
+var clusterInfoFile string
+var ctlOption string
+
 func init() {
-	testing.Init()
+	fmt.Println("x")
 	flag.Usage = usage
+	flag.StringVar(&clusterInfoFile, "cluster", "./cloudlab_cluster.json", "Specify the cluster node summary")
+	flag.StringVar(&ctlOption, "control", "faas", "Select the cluster controller")
+
+	if ctlOption != "faas" && ctlOption != "metron" && ctlOption != "nfvnice" {
+		glog.Errorf("FaaSController does not support %s option", ctlOption)
+		os.Exit(3)
+	}
+
+	testing.Init()
 	flag.Parse()
 }
 
@@ -29,15 +41,15 @@ func usage() {
 }
 
 func main() {
-	clusterInfo, err := utils.ParseClusterInfo("./cloudlab_cluster.json")
+	clusterInfo, err := utils.ParseClusterInfo(clusterInfoFile)
 	if err != nil {
 		glog.Errorf("Failed to read the cluster info. %v", err)
 	}
 
 	isTest := false
-	FaaSController := controller.NewFaaSController(isTest, clusterInfo)
-	go grpc.NewGRPCServer(FaaSController)
-	e := cli.NewExecutor(FaaSController)
+	faasCtl := controller.NewFaaSController(isTest, ctlOption, clusterInfo)
+	go grpc.NewGRPCServer(faasCtl)
+	e := cli.NewExecutor(faasCtl)
 
 	p := prompt.New(
 		e.Execute,

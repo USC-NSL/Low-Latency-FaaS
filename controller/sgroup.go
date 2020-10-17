@@ -68,8 +68,7 @@ var DefaultDstMACs = []string{
 var SupportQueueLength bool
 
 func init() {
-	flag.BoolVar(&SupportQueueLength, "SupportqueueLength", false, "Whether the PMD supports rte_eth_rx_queue_count function")
-	flag.Parse()
+	flag.BoolVar(&SupportQueueLength, "supportnicqueue", false, "Whether the PMD supports rte_eth_rx_queue_count function")
 	fmt.Printf("NIC supports queue count: %v\n", SupportQueueLength)
 }
 

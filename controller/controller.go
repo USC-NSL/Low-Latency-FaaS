@@ -19,6 +19,8 @@ const (
 	kMaxCountSGroupsStartupPerWorker = 20
 )
 
+var controllerOption string
+
 // The controller of the FaaS system for NFV.
 // |ToRGRPCHandler| are functions to handle gRPC requests to the ToR switch.
 // |workers| are all the worker nodes (i.e. physical or virtual machines) in the system.
@@ -33,7 +35,8 @@ type FaaSController struct {
 }
 
 // Creates a new FaaS controller.
-func NewFaaSController(isTest bool, cluster *utils.Cluster) *FaaSController {
+func NewFaaSController(isTest bool, ctlOption string, cluster *utils.Cluster) *FaaSController {
+	controllerOption = ctlOption
 	c := &FaaSController{
 		workers:  make(map[string]*Worker),
 		dags:     make(map[string]*DAG),
@@ -44,7 +47,7 @@ func NewFaaSController(isTest bool, cluster *utils.Cluster) *FaaSController {
 
 	kubectl.SetFaaSClusterInfo(cluster)
 
-	// Initializes all worker nodes when starting a |FaaSController|.
+	// Creates all worker nodes.
 	// Note: at each worker machine, core 0 is reserved for the scheduler on
 	// the machine. Then, coreNum is set to Cores - 1 because these cores are
 	// for running NFs.
@@ -57,22 +60,42 @@ func NewFaaSController(isTest bool, cluster *utils.Cluster) *FaaSController {
 		c.createWorker(name, ip, 1, coreNum, pcie, switchPort)
 	}
 
-	// If we are running tests, skip initializing all free SGroups because tests
-	// are expected to create their free SGroups.
+	// If we are running tests, skip initializing all free SGroups
+	// because these tests are expected to create their free SGroups.
 	if !isTest {
-		// Initializes per-worker hugepages, NIC queues, and schedulers.
-		var wg sync.WaitGroup
-		wg.Add(len(c.workers))
+		if controllerOption == "faas" {
+			// Initializes each worker.
+			for _, w := range c.workers {
+				w.faasInit()
+			}
 
-		for _, w := range c.workers {
-			go func(w *Worker) {
-				w.createAllFreeSGroups()
-				w.createSched()
-				wg.Done()
-			}(w)
+			// Initializes per-worker hugepages, NIC queues, and schedulers.
+			var wg sync.WaitGroup
+			wg.Add(len(c.workers))
+			for _, w := range c.workers {
+				go func(w *Worker) {
+					w.createAllFreeSGroups()
+					w.createSched()
+					wg.Done()
+				}(w)
+			}
+
+			wg.Wait()
+		} else if controllerOption == "metron" {
+			for _, w := range c.workers {
+				w.metronInit()
+			}
+
+			// Initializes per-worker hugepages, NIC queues, and schedulers.
+			var wg sync.WaitGroup
+			wg.Add(len(c.workers))
+			for _, w := range c.workers {
+				go func(w *Worker) {
+					w.createAllFreeSGroups()
+					wg.Done()
+				}(w)
+			}
 		}
-
-		wg.Wait()
 
 		go c.logger.RunFaaSLogger()
 	}

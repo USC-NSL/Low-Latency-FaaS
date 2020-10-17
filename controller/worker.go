@@ -93,17 +93,10 @@ func NewWorker(name string, ip string, coreNumOffset int, coreNum int, pcie []st
 		w.cores[coreID] = NewCore(coreID)
 	}
 
-	// Starts a background routine for maintaining |freeSGroups|
-	w.wg.Add(2)
-	go w.RunFreeSGroupFactory(w.op)
-	go w.ScheduleLoop()
-
 	// TODO(Zhuojin): remove VSwitchGRPCHandler.
 	//if err := w.VSwitchGRPCHandler.EstablishConnection(fmt.Sprintf("%s:%d", ip, vSwitchPort)); err != nil {
 	//	fmt.Println("Fail to connect with vSwitch: " + err.Error())
 	//}
-
-	glog.Infof("Worker[%s] is up.", w.name)
 
 	return &w
 }
@@ -137,6 +130,25 @@ func (w *Worker) String() string {
 	info += fmt.Sprintf("\n %d remaining free SGroups", len(w.freeSGroups))
 
 	return info + "\n"
+}
+
+// Bring up background threads for each worker.
+// (1) FreeSGroupFactory: the background thread for creating new free SGs;
+// (2) SchedulerLoop: the per-worker thread monitors CPU and traffic loads;
+func (w *Worker) faasInit() {
+	// Starts a background routine for maintaining |freeSGroups|
+	w.wg.Add(2)
+	go w.RunFreeSGroupFactory(w.op)
+	go w.ScheduleLoop()
+
+	glog.Infof("Worker[%s] is up.", w.name)
+}
+
+func (w *Worker) metronInit() {
+	w.wg.Add(1)
+	go w.RunFreeSGroupFactory(w.op)
+
+	glog.Infof("Worker[%s] is up.", w.name)
 }
 
 func (w *Worker) createSched() error {
@@ -195,6 +207,10 @@ func (w *Worker) createInstance(funcType string, cycleCost int, pcieIdx int, isP
 // Destroys an NF |ins|. Note: this function only gets called
 // when freeing a sGroup.
 func (w *Worker) destroyInstance(ins *Instance) error {
+	if ins == nil {
+		return nil
+	}
+
 	err := kubectl.K8sHandler.DeleteDeployment(ins.podName)
 	if err != nil {
 		return err
@@ -370,31 +386,39 @@ func (w *Worker) detachSGroup(sg *SGroup) error {
 func (w *Worker) Close() error {
 	errmsg := []string{}
 
-	// Shutdowns and waits for all background go routines.
-	w.op <- SHUTDOWN
-	w.schedOp <- SHUTDOWN
-	w.wg.Wait()
+	if controllerOption == "faas" {
+		// Shutdowns and waits for all background go routines.
+		w.op <- SHUTDOWN
+		w.schedOp <- SHUTDOWN
+		w.wg.Wait()
 
-	// Sends gRPC to shutdown scheduler.
-	res, err := w.KillSched()
-	if err != nil {
-		msg := "Connection failed when killing CooperativeSched"
-		errmsg = append(errmsg, msg)
-	} else if res.GetError().GetCode() != 0 {
-		msg := fmt.Sprintf("Failed to kill CooperativeSched. Reason: %s", res.GetError().GetErrmsg())
-		errmsg = append(errmsg, msg)
+		// Sends a gRPC request to turn CoopSched off.
+		res, err := w.KillSched()
+		if err != nil {
+			msg := "Connection failed when killing CooperativeSched"
+			errmsg = append(errmsg, msg)
+		} else if res.GetError().GetCode() != 0 {
+			msg := fmt.Sprintf("Failed to kill CooperativeSched. Reason: %s", res.GetError().GetErrmsg())
+			errmsg = append(errmsg, msg)
+		}
+
+		w.destroyInstance(w.sched)
+
+		// Cleans up SGroups and free SGroups.
+		w.destroyAllSGroups()
+		w.destroyAllFreeSGroups()
+	} else if controllerOption == "metron" {
+		w.op <- SHUTDOWN
+		w.wg.Wait()
+
+		// Cleans up SGroups and free SGroups.
+		w.destroyAllSGroups()
+		w.destroyAllFreeSGroups()
 	}
-
-	w.destroyInstance(w.sched)
-
-	// Cleans up SGroups and free SGroups.
-	w.destroyAllSGroups()
-	w.destroyAllFreeSGroups()
 
 	if len(errmsg) > 0 {
 		return errors.New(strings.Join(errmsg, ""))
 	}
-
 	fmt.Printf("worker[%s] is cleaned up\n", w.name)
 	return nil
 }
