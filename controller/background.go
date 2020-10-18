@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -113,7 +114,7 @@ func (w *Worker) createSGroup(sg *SGroup, dag *DAG) {
 	pcieIdx := sg.pcieIdx
 
 	for i, nf := range dag.chains {
-		funcType := nf.funcType
+		funcType := []string{nf.funcType}
 		cycleCost := nf.cycles
 		isPrimary := false
 		isIngress := false
@@ -147,6 +148,50 @@ func (w *Worker) createSGroup(sg *SGroup, dag *DAG) {
 
 	// Add |sg| to |dag|'s active |sgroups|.
 	dag.sgroups = append(dag.sgroups, sg)
+	sg.dag = dag
+
+	// Check whether the sg is ready to serve traffic.
+	// If yes, notify the cooperative scheduler.
+	sg.isComplete = true
+	sg.preprocessBeforeReady()
+}
+
+func (w *Worker) metronCreateSGroup(sg *SGroup, dag *DAG) {
+	pcieIdx := sg.pcieIdx
+
+	nfTypes := make([]string, 0)
+	cycleCost := 0
+	for _, nf := range dag.chains {
+		nfTypes = append(nfTypes, nf.funcType)
+		cycleCost += nf.cycles
+	}
+
+	isPrimary := false
+	isIngress := true
+	isEgress := true
+	vPortIncIdx, vPortOutIdx := 0, 1
+
+	ins, err := w.createInstance(nfTypes, cycleCost, pcieIdx, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+	if err != nil {
+		glog.Errorf("Failed to create nf[%s]. %s\n", strings.Join(nfTypes, ","), err)
+
+		// Cleanup.. |sg| is moved to |w.freeSGroups|.
+		w.destroySGroup(sg)
+		return
+	}
+
+	// Set ins.sg = sg
+	sg.AppendInstance(ins)
+
+	// Add |sg| to |w.sgroups|.
+	w.sgMutex.Lock()
+	w.sgroups = append(w.sgroups, sg)
+	w.sgroupTarget += 1
+	w.sgMutex.Unlock()
+
+	// Add |sg| to |dag|'s active |sgroups|.
+	dag.sgroups = append(dag.sgroups, sg)
+	sg.dag = dag
 
 	// Check whether the sg is ready to serve traffic.
 	// If yes, notify the cooperative scheduler.

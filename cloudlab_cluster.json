@@ -6,6 +6,12 @@
         "PCIe": [],
         "switchPort": 0
     },
+    "ofctl": {
+        "nodeName": "ryu",
+        "CPU": 16,
+        "IP": "128.105.144.158",
+        "password": "faas-nfv-cool"
+    },
     "workers": [
         {
             "nodeName": "node1",

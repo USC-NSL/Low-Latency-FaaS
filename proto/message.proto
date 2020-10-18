@@ -163,3 +163,19 @@ message SetBatchArg {
     uint32 batch_size = 1; // The maximum "burst" of packets (ie, the maximum batch size) to proceed in each round.
     uint32 batch_number = 2; // How many rounds (batches) to go (proceed) before yielding CPU. Must be (2^n).
 }
+
+message PortInfo {
+    repeated uint32 switch_ports = 1;  /// ToR switch ports with load changes
+}
+
+message UpdatePortResponse {
+    repeated int32 affected_sgroups = 1;  /// A list of affected SGroups
+}
+
+message TrafficClass {
+    uint32 id = 1;
+    uint32 tc_start = 2;
+    uint32 tc_range = 3;
+    uint32 switch_port = 4;
+    string dmac = 5;
+}

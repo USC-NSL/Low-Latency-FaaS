@@ -19,7 +19,6 @@ var clusterInfoFile string
 var ctlOption string
 
 func init() {
-	fmt.Println("x")
 	flag.Usage = usage
 	flag.StringVar(&clusterInfoFile, "cluster", "./cloudlab_cluster.json", "Specify the cluster node summary")
 	flag.StringVar(&ctlOption, "control", "faas", "Select the cluster controller")

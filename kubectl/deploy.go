@@ -3,6 +3,7 @@ package kubectl
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	utils "github.com/USC-NSL/Low-Latency-FaaS/utils"
@@ -39,25 +40,34 @@ var moduleNameMappings = map[string]string{
 	"bypass":   "Bypass",
 }
 
-// Create an NF instance with type |funcType| on node |nodeName|,
+// Create an NF instance with type |nfTypes| on node |nodeName|,
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
-// In Kubernetes, the instance is run as a deployment with name "nodeName-funcType-portId".
+// In Kubernetes, the instance is run as a deployment with name "nodeName-nfTypes-portId".
 func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string,
-	funcType string, hostPort int, pcie string, isPrimary bool, isIngress bool, isEgress bool, vPortIncIdx int, vPortOutIdx int) unstructured.Unstructured {
+	nfTypes []string, hostPort int, pcie string,
+	isPrimary bool, isIngress bool, isEgress bool,
+	vPortIncIdx int, vPortOutIdx int) (string, unstructured.Unstructured) {
 	if kFaaSControllerIP == "" {
 		glog.Errorf("kubectl isn't aware of FaaS master node's IP. RPCs from containers will fail to reach the master node.")
 	}
 
+	// Note: a pod name must be in lower cases. A NF name is in the above mapping.
+	mods := make([]string, 0)
+	for _, nfType := range nfTypes {
+		mod, exists := moduleNameMappings[nfType]
+		if !exists {
+			mod = "None"
+		}
+		mods = append(mods, mod)
+	}
+
+	nfName := strings.Join(nfTypes, ",")
+	modNames := strings.Join(mods, ",")
 	portId := strconv.Itoa(hostPort)
 	vPortInc := strconv.Itoa(vPortIncIdx)
 	vPortOut := strconv.Itoa(vPortOutIdx)
 
-	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, funcType, portId)
-
-	moduleName, exists := moduleNameMappings[funcType]
-	if !exists {
-		moduleName = "None"
-	}
+	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, nfName, portId)
 
 	deployment := unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -96,7 +106,7 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string,
 										"hugepages-2Mi": "128Mi",
 									},
 								},
-								"name":            funcType,
+								"name":            nfName,
 								"image":           kDockerhubUser + "/" + kNFImage,
 								"imagePullPolicy": "IfNotPresent",
 								"ports": []map[string]interface{}{
@@ -112,7 +122,7 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string,
 									"/app/main",
 									"--node_name=" + nodeName,
 									"--port=" + portId,
-									"--module=" + moduleName,
+									"--module=" + modNames,
 									"--primary=" + strconv.FormatBool(isPrimary),
 									"--ingress=" + strconv.FormatBool(isIngress),
 									"--egress=" + strconv.FormatBool(isEgress),
@@ -227,12 +237,13 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string,
 		},
 	}
 
-	return deployment
+	return deploymentName, deployment
 }
 
 // Creates a CooperativeSched instance on the worker node |nodeName|,
 // In Kubernetes, the instance is run as a deployment with name "nodeName-sched".
-func (k8s *KubeController) makeSchedDeploymentSpec(nodeName string, hostPort int) unstructured.Unstructured {
+func (k8s *KubeController) makeSchedDeploymentSpec(nodeName string,
+	hostPort int) (string, unstructured.Unstructured) {
 	deploymentName := fmt.Sprintf("%s-coopsched", nodeName)
 	coreNum := "15"
 	// w.Cores is the total number of available cores in the worker.
@@ -305,7 +316,7 @@ func (k8s *KubeController) makeSchedDeploymentSpec(nodeName string, hostPort int
 		},
 	}
 
-	return deployment
+	return deploymentName, deployment
 }
 
 // Creates a CooperativeSched instance on node |nodeName|. Assigns
@@ -314,8 +325,7 @@ func (k8s *KubeController) CreateSchedDeployment(nodeName string, hostPort int) 
 	api := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 	deploy := k8s.dynamicClient.Resource(api).Namespace(k8s.namespace)
 
-	spec := k8s.makeSchedDeploymentSpec(nodeName, hostPort)
-	deploymentName := fmt.Sprintf("%s-coopsched", nodeName)
+	deploymentName, spec := k8s.makeSchedDeploymentSpec(nodeName, hostPort)
 
 	_, err := deploy.Create(&spec, metav1.CreateOptions{})
 	if err != nil {
@@ -325,16 +335,16 @@ func (k8s *KubeController) CreateSchedDeployment(nodeName string, hostPort int) 
 	return deploymentName, nil
 }
 
-// Create an NF instance with type |funcType| on node |nodeName| at core |workerCore|,
+// Create an NF instance with type |nfTypes| on node |nodeName| at core |workerCore|,
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
 // (Try for at most 20 seconds.)
 func (k8s *KubeController) CreateDeployment(nodeName string,
-	funcType string, hostPort int, pcie string, isPrimary bool, isIngress bool, isEgress bool, vPortIncIdx int, vPortOutIdx int) (string, error) {
+	nfTypes []string, hostPort int, pcie string,
+	isPrimary bool, isIngress bool, isEgress bool,
+	vPortIncIdx int, vPortOutIdx int) (string, error) {
 	api := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 	deploy := k8s.dynamicClient.Resource(api).Namespace(k8s.namespace)
-
-	spec := k8s.makeDPDKDeploymentSpec(nodeName, funcType, hostPort, pcie, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
-	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, funcType, strconv.Itoa(hostPort))
+	deploymentName, spec := k8s.makeDPDKDeploymentSpec(nodeName, nfTypes, hostPort, pcie, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 
 	var err error
 	start := time.Now()
@@ -342,12 +352,12 @@ func (k8s *KubeController) CreateDeployment(nodeName string,
 		_, err = deploy.Create(&spec, metav1.CreateOptions{})
 		if err == nil { // Successful
 			glog.Infof("Deploy instance [%s] (pcie=%s,ingress=%v,egress=%v) on %s with port %d.\n",
-				funcType, pcie, isIngress, isEgress, nodeName, hostPort)
+				nfTypes, pcie, isIngress, isEgress, nodeName, hostPort)
 			return deploymentName, nil
 		}
 	}
 	glog.Errorf("Failed to deploy instance [%s] (pcie=%s,ingress=%v,egress=%v) on %s with port %d. %v\n",
-		funcType, pcie, isIngress, isEgress, nodeName, hostPort, err)
+		nfTypes, pcie, isIngress, isEgress, nodeName, hostPort, err)
 	return "", err
 }
 

@@ -57,6 +57,10 @@ func (g *DAG) String() string {
 	return strings.Join(dag, " ")
 }
 
+func (g *DAG) IsActive() bool {
+	return g.isActive
+}
+
 // This function adds a logical NF of |funcType| to DAG |g|.
 // Returns an integral handler of this added NF.
 func (g *DAG) addNF(funcType string) int {

@@ -28,9 +28,11 @@ var controllerOption string
 // |dags| maintains all logical representations of NF DAGs.
 type FaaSController struct {
 	grpc.ToRGRPCHandler
+	ofctlRpc grpc.OfctlRpcHandler
 	workers  map[string]*Worker
 	dags     map[string]*DAG
 	masterIP string
+	ofctlIP  string
 	logger   *FaaSLogger
 }
 
@@ -41,6 +43,7 @@ func NewFaaSController(isTest bool, ctlOption string, cluster *utils.Cluster) *F
 		workers:  make(map[string]*Worker),
 		dags:     make(map[string]*DAG),
 		masterIP: cluster.Master.IP,
+		ofctlIP:  cluster.Ofctl.IP,
 		logger:   nil,
 	}
 	c.logger = NewFaaSLogger(c)
@@ -79,7 +82,6 @@ func NewFaaSController(isTest bool, ctlOption string, cluster *utils.Cluster) *F
 					wg.Done()
 				}(w)
 			}
-
 			wg.Wait()
 		} else if controllerOption == "metron" {
 			for _, w := range c.workers {
@@ -95,6 +97,10 @@ func NewFaaSController(isTest bool, ctlOption string, cluster *utils.Cluster) *F
 					wg.Done()
 				}(w)
 			}
+			wg.Wait()
+
+			// Connects to the ofctl service.
+			c.ofctlRpc.EstablishConnection(c.ofctlIP, kControlPlaneRedisPass, 1)
 		}
 
 		go c.logger.RunFaaSLogger()
@@ -148,6 +154,8 @@ func (c *FaaSController) Close() error {
 		l.StopFaaSLogger()
 		wg.Done()
 	}(c.logger)
+
+	c.ofctlRpc.CloseConnection()
 
 	select {
 	case <-wgDone:
@@ -231,28 +239,32 @@ func (c *FaaSController) ActivateDAG(user string) error {
 
 	dag.Activate()
 
-	// Starts NF chains at all available free SGroups.
-	var wg sync.WaitGroup
-	wg.Add(len(c.workers))
+	if controllerOption == "faas" { // FaaS-NFV starts up.
+		// Starts NF chains at all available free SGroups.
+		var wg sync.WaitGroup
+		wg.Add(len(c.workers))
 
-	for _, w := range c.workers {
-		go func(w *Worker) {
-			for {
-				sg := w.getFreeSGroup()
-				if sg != nil {
-					for w.countPendingSGroups() >= kMaxCountSGroupsStartupPerWorker {
-						time.Sleep(500 * time.Millisecond)
+		for _, w := range c.workers {
+			go func(w *Worker) {
+				for {
+					sg := w.getFreeSGroup()
+					if sg != nil {
+						for w.countPendingSGroups() >= kMaxCountSGroupsStartupPerWorker {
+							time.Sleep(500 * time.Millisecond)
+						}
+
+						sg.worker.createSGroup(sg, dag)
+					} else {
+						break
 					}
-
-					sg.worker.createSGroup(sg, dag)
-				} else {
-					break
 				}
-			}
-			wg.Done()
-		}(w)
+				wg.Done()
+			}(w)
+		}
+		wg.Wait()
+	} else if controllerOption == "metron" { // Metron starts up.
+		c.metronStartUp()
 	}
-	wg.Wait()
 
 	glog.Info("DAG is activated.")
 	return nil

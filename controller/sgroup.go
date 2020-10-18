@@ -118,11 +118,11 @@ type SGroup struct {
 	maxRateKpps      int
 	worker           *Worker
 	coreID           int
+	dag              *DAG
 	mutex            sync.Mutex
 }
 
 func newSGroup(w *Worker, pcieIdx int) *SGroup {
-	glog.Infof("Create a new SGroup at worker[%s]:pcie[%d]", w.name, pcieIdx)
 	sg := SGroup{
 		groupID:          pcieIdx,
 		pcieIdx:          pcieIdx,
@@ -144,6 +144,7 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 		maxRateKpps:      800,
 		worker:           w,
 		coreID:           INVALID_CORE_ID,
+		dag:              nil,
 	}
 
 	isPrimary := true
@@ -151,7 +152,7 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 	isEgress := false
 	vPortIncIdx := 0
 	vPortOutIdx := 0
-	ins, err := w.createInstance("prim", 0, pcieIdx, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+	ins, err := w.createInstance([]string{"prim"}, 0, pcieIdx, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 	if err != nil {
 		// Fail to create the head instance. Cleanup..
 		glog.Errorf("Failed to create Instance. %v", err)
@@ -159,6 +160,7 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 	}
 
 	// Succeed.
+	glog.Infof("Create a free SGroup %d at Worker[%s]:pcie[%d]", sg.groupID, w.name, pcieIdx)
 	sg.manager = ins
 	return &sg
 }
@@ -198,12 +200,14 @@ func (sg *SGroup) Reset() {
 	for _, ins := range sg.instances {
 		err := sg.worker.destroyInstance(ins)
 		if err != nil {
-			glog.Errorf("Failed to remove Pod[%s] in SGroup[%d]. %v", ins.funcType, sg.ID(), err)
+			glog.Errorf("Failed to remove Instance %s from SGroup %d. %v", ins.funcType, sg.ID(), err)
 		}
+		glog.Infof("remove %s", ins.funcType)
 	}
 
 	sg.instances = nil
 	sg.tids = nil
+	sg.dag = nil
 }
 
 // Appends a new Instance |ins| to the end of this SGroup |sg|.

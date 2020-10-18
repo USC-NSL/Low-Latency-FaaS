@@ -15,7 +15,14 @@ import (
 )
 
 const (
-	vSwitchPort   = 10514
+	// The default Redis server's port for the control-plane.
+	kControlPlaneRedisPass = "faas-nfv-cool"
+	kControlPlaneRedisPort = 6379
+
+	// The default per-worker vSwitch (BESS) gRPC port.
+	vSwitchPort = 10514
+
+	// The default per-worker CoopSched gRCP port.
 	schedulerPort = 10515
 )
 
@@ -25,7 +32,6 @@ const (
 // |name| is the name of the node in kubernetes.
 // |ip| is the ip address of the worker node.
 // |vSwitchPort| is BESS gRPC port on host (e.g. FlowGen).
-// |schedulerPort| is Cooperativesched gRCP port on host.
 // |cores| maps real core numbers to CPU cores.
 // |sgroups| contains all deployed sgroups on the worker.
 // |freeSGroups| are free sGroups not pinned to any core yet (but in memory).
@@ -132,6 +138,17 @@ func (w *Worker) String() string {
 	return info + "\n"
 }
 
+func (w *Worker) GetPktLoad() int {
+	w.sgMutex.Lock()
+	defer w.sgMutex.Unlock()
+
+	sumLoad := 0
+	for _, sg := range w.sgroups {
+		sumLoad += sg.GetPktLoad()
+	}
+	return sumLoad
+}
+
 // Bring up background threads for each worker.
 // (1) FreeSGroupFactory: the background thread for creating new free SGs;
 // (2) SchedulerLoop: the per-worker thread monitors CPU and traffic loads;
@@ -141,14 +158,15 @@ func (w *Worker) faasInit() {
 	go w.RunFreeSGroupFactory(w.op)
 	go w.ScheduleLoop()
 
-	glog.Infof("Worker[%s] is up.", w.name)
+	glog.Infof("FaaS Worker[%s] is up.", w.name)
 }
 
+// Metron does not run per-worker monitoring functions.
 func (w *Worker) metronInit() {
 	w.wg.Add(1)
 	go w.RunFreeSGroupFactory(w.op)
 
-	glog.Infof("Worker[%s] is up.", w.name)
+	glog.Infof("Metron Worker[%s] is up.", w.name)
 }
 
 func (w *Worker) createSched() error {
@@ -183,11 +201,11 @@ func (w *Worker) createSched() error {
 // Creates an NF instance |ins| with type |funcType|. This instance
 // is stored in the worker's |insStartupPool|. The controller waits
 // for its |tid| sent from its NF thread.
-func (w *Worker) createInstance(funcType string, cycleCost int, pcieIdx int, isPrimary bool, isIngress bool, isEgress bool, vPortIncIdx int, vPortOutIdx int) (*Instance, error) {
+func (w *Worker) createInstance(nfTypes []string, cycleCost int, pcieIdx int, isPrimary bool, isIngress bool, isEgress bool, vPortIncIdx int, vPortOutIdx int) (*Instance, error) {
 	// Both |IndexPool| and |InstancePool| are thread-safe types.
 	port := w.instancePortPool.GetNextAvailable()
 	podName, err := kubectl.K8sHandler.CreateDeployment(
-		w.name, funcType, port, w.pcie[pcieIdx],
+		w.name, nfTypes, port, w.pcie[pcieIdx],
 		isPrimary, isIngress, isEgress,
 		vPortIncIdx, vPortOutIdx)
 	if err != nil {
@@ -195,7 +213,7 @@ func (w *Worker) createInstance(funcType string, cycleCost int, pcieIdx int, isP
 		return nil, err
 	}
 
-	ins := newInstance(funcType, isIngress, isEgress, cycleCost, w.ip, port, podName)
+	ins := newInstance(strings.Join(nfTypes, ","), isIngress, isEgress, cycleCost, w.ip, port, podName)
 	if !isPrimary {
 		w.insStartupPool.add(ins)
 	}

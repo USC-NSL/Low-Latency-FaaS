@@ -17,6 +17,8 @@ const (
 type Controller interface {
 	UpdateFlow(srcIP string, dstIP string, srcPort uint32, dstPort uint32, proto uint32) (uint32, string, error)
 
+	UpdatePort(ports []uint32) ([]int32, error)
+
 	InstanceSetUp(nodeName string, port int, tid int) error
 
 	InstanceUpdateStats(nodeName string, port int, qlen int, kpps int, cycle int) error
@@ -59,6 +61,26 @@ func (s *GRPCServer) UpdateFlow(context context.Context, flowInfo *pb.FlowInfo) 
 	// Insert a flow rule to the ingress switch to handle subsequent packets.
 	res := &pb.FlowTableEntry{SwitchPort: switchPort, Dmac: dmac}
 	return res, err
+}
+
+// This function is called when an OpenFlow controller finds a load
+// change at a port. Metron collects port statistics for significant
+// load changes. It checks affected NF chains, and triggers scaling
+// events when necessary.
+func (s *GRPCServer) UpdatePort(context context.Context, portInfo *pb.PortInfo) (*pb.UpdatePortResponse, error) {
+	switchPorts := make([]uint32, 0)
+	for _, port := range portInfo.SwitchPorts {
+		switchPorts = append(switchPorts, port)
+	}
+
+	sgs, err := s.FaaSController.UpdatePort(switchPorts)
+	res := new(pb.UpdatePortResponse)
+	if err != nil {
+		return res, err
+	}
+
+	res.AffectedSgroups = sgs
+	return res, nil
 }
 
 // When a new instance sets up, it will inform the controller about its TID,
