@@ -201,11 +201,11 @@ func (w *Worker) createSched() error {
 // Creates an NF instance |ins| with type |funcType|. This instance
 // is stored in the worker's |insStartupPool|. The controller waits
 // for its |tid| sent from its NF thread.
-func (w *Worker) createInstance(nfTypes []string, cycleCost int, pcieIdx int, isPrimary bool, isIngress bool, isEgress bool, vPortIncIdx int, vPortOutIdx int) (*Instance, error) {
+func (w *Worker) createInstance(nfTypes []string, cycleCost int, pcieIdx int, coreID int, isPrimary bool, isIngress bool, isEgress bool, vPortIncIdx int, vPortOutIdx int) (*Instance, error) {
 	// Both |IndexPool| and |InstancePool| are thread-safe types.
 	port := w.instancePortPool.GetNextAvailable()
 	podName, err := kubectl.K8sHandler.CreateDeployment(
-		w.name, nfTypes, port, w.pcie[pcieIdx],
+		w.name, nfTypes, port, w.pcie[pcieIdx], coreID,
 		isPrimary, isIngress, isEgress,
 		vPortIncIdx, vPortOutIdx)
 	if err != nil {
@@ -360,7 +360,7 @@ func (w *Worker) getSGroup(groupID int) *SGroup {
 func (w *Worker) attachSGroup(sg *SGroup, coreID int) error {
 	// Removes |sg| from its previous core.
 	prevCoreID := sg.GetCoreID()
-	if prevCoreID != INVALID_CORE_ID {
+	if prevCoreID != kFaaSInvalidCoreID {
 		prevCore, exists := w.cores[prevCoreID]
 		if !exists {
 			return errors.New(fmt.Sprintf("Core[%d] not found", prevCoreID))

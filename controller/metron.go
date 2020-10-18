@@ -37,7 +37,7 @@ func (c *FaaSController) metronStartUp() {
 	var wg sync.WaitGroup
 
 	for _, dag := range c.dags {
-		if dag.IsActive() {
+		if !dag.IsActive() {
 			continue
 		}
 
@@ -45,8 +45,11 @@ func (c *FaaSController) metronStartUp() {
 			wg.Add(1)
 			go func(c *FaaSController, dag *DAG) {
 				sg := c.metronGetFreeSGroup()
+				glog.Info(sg)
 				if sg != nil {
+					// Note: before creating a new sg, metron has to set a valid coreID for this sg.
 					sg.worker.metronCreateSGroup(sg, dag)
+
 					// Check that sg is up and then notify ofctl
 					if sg.IsReady() {
 						c.ofctlRpc.UpdateSGroup(sg.ID(), sg.worker.switchPort, DefaultDstMACs[sg.pcieIdx])
@@ -76,11 +79,24 @@ func (c *FaaSController) metronGetFreeSGroup() *SGroup {
 	w1 := fmt.Sprintf("node%d", (1 + rand1))
 	w2 := fmt.Sprintf("node%d", (1 + rand2))
 
+	var freeSG *SGroup = nil
+
 	if c.workers[w1].GetPktLoad() > c.workers[w2].GetPktLoad() {
-		return c.workers[w2].getFreeSGroup()
+		freeSG = c.workers[w2].getFreeSGroup()
+	} else {
+		freeSG = c.workers[w1].getFreeSGroup()
 	}
 
-	return c.workers[w1].getFreeSGroup()
+	if freeSG != nil {
+		if core := freeSG.worker.getIdleCore(); core != nil {
+			freeSG.SetCoreID(core.coreID)
+		} else {
+			freeSG = nil
+			glog.Errorf("Worker[%s] runs out of cores", freeSG.worker.name)
+		}
+	}
+
+	return freeSG
 }
 
 func (c *FaaSController) metronProcessWorker(w *Worker) []int32 {

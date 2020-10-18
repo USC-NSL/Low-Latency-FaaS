@@ -15,9 +15,10 @@ const (
 	NIC_RX_QUEUE_LENGTH = 4096
 	NIC_TX_QUEUE_LENGTH = 4096
 
-	// Core indexes for idle chains
-	IDLE_CHAINS_CORE_ID = 1
-	INVALID_CORE_ID     = -1
+	// FaaS Core IDs
+	kFaaSInvalidCoreID = -1
+	kFaaSStartCoreID   = 19
+	kFaaSIdleCoreID    = 1
 
 	// The context switch time in CPU cycles
 	CONTEXT_SWITCH_CYCLE_COST_PP = 5100
@@ -122,6 +123,8 @@ type SGroup struct {
 	mutex            sync.Mutex
 }
 
+// Creates a new SGroup (free) and its associated primary NF instance.
+// The instance manages system resources for |sg|.
 func newSGroup(w *Worker, pcieIdx int) *SGroup {
 	sg := SGroup{
 		groupID:          pcieIdx,
@@ -143,7 +146,7 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 		pktRateKpps:      0,
 		maxRateKpps:      800,
 		worker:           w,
-		coreID:           INVALID_CORE_ID,
+		coreID:           kFaaSInvalidCoreID,
 		dag:              nil,
 	}
 
@@ -152,7 +155,8 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 	isEgress := false
 	vPortIncIdx := 0
 	vPortOutIdx := 0
-	ins, err := w.createInstance([]string{"prim"}, 0, pcieIdx, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+
+	ins, err := w.createInstance([]string{"prim"}, 0, pcieIdx, kFaaSStartCoreID, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 	if err != nil {
 		// Fail to create the head instance. Cleanup..
 		glog.Errorf("Failed to create Instance. %v", err)
@@ -301,7 +305,7 @@ func (sg *SGroup) preprocessBeforeReady() {
 
 		time.Sleep(100 * time.Millisecond)
 
-		coreID := IDLE_CHAINS_CORE_ID
+		coreID := kFaaSIdleCoreID
 		if status, err := w.AttachChain(sg.tids, coreID); err != nil {
 			glog.Errorf("Failed to attach SGroup[%d] on core #1. %s", sg.ID(), err)
 		} else if status.GetCode() != 0 {
@@ -447,6 +451,12 @@ func (sg *SGroup) SetCoreID(coreID int) {
 	sg.coreID = coreID
 }
 
+func (sg *SGroup) IsCoreIDValid() bool {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+	return sg.coreID != kFaaSInvalidCoreID
+}
+
 func (sg *SGroup) GetCoreID() int {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
@@ -494,7 +504,7 @@ func (sg *SGroup) attachSGroup(coreID int) error {
 }
 
 func (sg *SGroup) detachSGroup() error {
-	if sg.GetCoreID() == INVALID_CORE_ID {
+	if sg.GetCoreID() == kFaaSInvalidCoreID {
 		return fmt.Errorf("SGroup[%d] is not running", sg.ID())
 	}
 	if !sg.IsSched() {

@@ -127,7 +127,7 @@ func (w *Worker) createSGroup(sg *SGroup, dag *DAG) {
 		}
 		vPortIncIdx, vPortOutIdx := i, i+1
 
-		ins, err := w.createInstance(funcType, cycleCost, pcieIdx, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+		ins, err := w.createInstance(funcType, cycleCost, pcieIdx, kFaaSStartCoreID, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 		if err != nil {
 			glog.Errorf("Failed to create nf[%s]. %s\n", funcType, err)
 
@@ -157,6 +157,13 @@ func (w *Worker) createSGroup(sg *SGroup, dag *DAG) {
 }
 
 func (w *Worker) metronCreateSGroup(sg *SGroup, dag *DAG) {
+	if sg == nil || dag == nil {
+		return
+	}
+	if !sg.IsCoreIDValid() {
+		return
+	}
+
 	pcieIdx := sg.pcieIdx
 
 	nfTypes := make([]string, 0)
@@ -171,7 +178,7 @@ func (w *Worker) metronCreateSGroup(sg *SGroup, dag *DAG) {
 	isEgress := true
 	vPortIncIdx, vPortOutIdx := 0, 1
 
-	ins, err := w.createInstance(nfTypes, cycleCost, pcieIdx, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+	ins, err := w.createInstance(nfTypes, cycleCost, pcieIdx, sg.coreID, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 	if err != nil {
 		glog.Errorf("Failed to create nf[%s]. %s\n", strings.Join(nfTypes, ","), err)
 

@@ -21,7 +21,7 @@ var ctlOption string
 func init() {
 	flag.Usage = usage
 	flag.StringVar(&clusterInfoFile, "cluster", "./cloudlab_cluster.json", "Specify the cluster node summary")
-	flag.StringVar(&ctlOption, "control", "faas", "Select the cluster controller")
+	flag.StringVar(&ctlOption, "ctl", "faas", "Select the cluster controller")
 
 	if ctlOption != "faas" && ctlOption != "metron" && ctlOption != "nfvnice" {
 		glog.Errorf("FaaSController does not support %s option", ctlOption)

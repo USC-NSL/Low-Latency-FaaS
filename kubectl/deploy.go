@@ -44,7 +44,7 @@ var moduleNameMappings = map[string]string{
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
 // In Kubernetes, the instance is run as a deployment with name "nodeName-nfTypes-portId".
 func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string,
-	nfTypes []string, hostPort int, pcie string,
+	nfTypes []string, hostPort int, pcie string, hostCore int,
 	isPrimary bool, isIngress bool, isEgress bool,
 	vPortIncIdx int, vPortOutIdx int) (string, unstructured.Unstructured) {
 	if kFaaSControllerIP == "" {
@@ -61,7 +61,7 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string,
 		mods = append(mods, mod)
 	}
 
-	nfName := strings.Join(nfTypes, ",")
+	nfName := strings.Join(nfTypes, "-")
 	modNames := strings.Join(mods, ",")
 	portId := strconv.Itoa(hostPort)
 	vPortInc := strconv.Itoa(vPortIncIdx)
@@ -108,7 +108,7 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string,
 								},
 								"name":            nfName,
 								"image":           kDockerhubUser + "/" + kNFImage,
-								"imagePullPolicy": "IfNotPresent",
+								"imagePullPolicy": "Always", //IfNotPresent
 								"ports": []map[string]interface{}{
 									{
 										// The ports between [50052, 51051] on the host is used
@@ -128,6 +128,7 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string,
 									"--egress=" + strconv.FormatBool(isEgress),
 									"--isolation_key=" + pcie,
 									"--device=" + pcie,
+									"--worker_core=" + strconv.Itoa(hostCore),
 									"--vport_inc_idx=" + vPortInc,
 									"--vport_out_idx=" + vPortOut,
 									"--faas_grpc_server=" + kFaaSControllerIP + ":" + kFaaSControllerPort,
@@ -339,12 +340,12 @@ func (k8s *KubeController) CreateSchedDeployment(nodeName string, hostPort int) 
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
 // (Try for at most 20 seconds.)
 func (k8s *KubeController) CreateDeployment(nodeName string,
-	nfTypes []string, hostPort int, pcie string,
+	nfTypes []string, hostPort int, pcie string, hostCore int,
 	isPrimary bool, isIngress bool, isEgress bool,
 	vPortIncIdx int, vPortOutIdx int) (string, error) {
 	api := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 	deploy := k8s.dynamicClient.Resource(api).Namespace(k8s.namespace)
-	deploymentName, spec := k8s.makeDPDKDeploymentSpec(nodeName, nfTypes, hostPort, pcie, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+	deploymentName, spec := k8s.makeDPDKDeploymentSpec(nodeName, nfTypes, hostPort, pcie, hostCore, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 
 	var err error
 	start := time.Now()
@@ -352,7 +353,7 @@ func (k8s *KubeController) CreateDeployment(nodeName string,
 		_, err = deploy.Create(&spec, metav1.CreateOptions{})
 		if err == nil { // Successful
 			glog.Infof("Deploy instance [%s] (pcie=%s,ingress=%v,egress=%v) on %s with port %d.\n",
-				nfTypes, pcie, isIngress, isEgress, nodeName, hostPort)
+				strings.Join(nfTypes, ","), pcie, isIngress, isEgress, nodeName, hostPort)
 			return deploymentName, nil
 		}
 	}
