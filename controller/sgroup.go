@@ -223,9 +223,19 @@ func (sg *SGroup) AppendInstance(ins *Instance) {
 	sg.instances = append(sg.instances, ins)
 }
 
-// This function adjusts the batch parameters for all instances
-// in this SGroup. It calculates the appropriate values based on
-// the profiled NF cycle costs.
+// This function adjusts the runtime and scheduling parameters for
+// all instances in |sg|.
+func (sg *SGroup) adjustRuntimeConfig() {
+	for _, ins := range sg.instances {
+		if ins.funcType == "bypass" {
+			if err := ins.setCycles(ins.profiledCycle); err != nil {
+				glog.Errorf("%v", err)
+			}
+		}
+	}
+	glog.Infof("Finish setting the runtime config for SGroup (w:%s, idx:%d)", sg.worker.name, sg.groupID)
+}
+
 func (sg *SGroup) adjustBatchCount() {
 	sumCycleCost := 0
 	for _, ins := range sg.instances {
@@ -239,13 +249,6 @@ func (sg *SGroup) adjustBatchCount() {
 	for _, ins := range sg.instances {
 		if err := ins.setBatch(sg.batchSize, sg.batchCount); err != nil {
 			glog.Errorf("%v", err)
-		}
-
-		if ins.funcType == "bypass" {
-			// All connections have been set up.
-			if err := ins.setCycles(ins.profiledCycle); err != nil {
-				glog.Errorf("%v", err)
-			}
 		}
 	}
 	glog.Infof("Finish setting the batch size for SGroup (w:%s, idx:%d)", sg.worker.name, sg.groupID)
@@ -278,10 +281,17 @@ func (sg *SGroup) preprocessBeforeReady() {
 		for _, ins := range sg.instances {
 			sg.tids = append(sg.tids, int32(ins.tid))
 		}
-
 		glog.Infof("SGroup (w:%s, idx:%d) is ready. Connecting...", sg.worker.name, sg.ID())
-		sg.adjustBatchCount()
+		sg.adjustRuntimeConfig()
 
+		if controllerOption == "metron" {
+			sg.isReady = true
+			sg.isActive = true
+			sg.isSched = true
+			return
+		}
+
+		sg.adjustBatchCount()
 		w := sg.worker
 		w.upMutex.Lock()
 		w.sgroupConns = append(w.sgroupConns, sg.groupID)

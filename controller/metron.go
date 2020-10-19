@@ -51,8 +51,12 @@ func (c *FaaSController) metronStartUp() {
 					sg.worker.metronCreateSGroup(sg, dag)
 
 					// Check that sg is up and then notify ofctl
-					if sg.IsReady() {
-						c.ofctlRpc.UpdateSGroup(sg.ID(), sg.worker.switchPort, DefaultDstMACs[sg.pcieIdx])
+					start := time.Now()
+					for time.Now().Unix()-start.Unix() < 20 {
+						if sg.IsReady() {
+							c.ofctlRpc.UpdateSGroup(sg.ID(), sg.worker.switchPort, DefaultDstMACs[sg.pcieIdx])
+							break
+						}
 					}
 				} else {
 					glog.Errorf("Failed to create a new SGroup (no resources)")
@@ -90,6 +94,7 @@ func (c *FaaSController) metronGetFreeSGroup() *SGroup {
 	if freeSG != nil {
 		if core := freeSG.worker.getIdleCore(); core != nil {
 			freeSG.SetCoreID(core.coreID)
+			core.addSGroup(freeSG)
 		} else {
 			freeSG = nil
 			glog.Errorf("Worker[%s] runs out of cores", freeSG.worker.name)

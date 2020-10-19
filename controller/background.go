@@ -193,7 +193,6 @@ func (w *Worker) metronCreateSGroup(sg *SGroup, dag *DAG) {
 	// Add |sg| to |w.sgroups|.
 	w.sgMutex.Lock()
 	w.sgroups = append(w.sgroups, sg)
-	w.sgroupTarget += 1
 	w.sgMutex.Unlock()
 
 	// Add |sg| to |dag|'s active |sgroups|.
