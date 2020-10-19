@@ -3,7 +3,10 @@ package kubectl
 import (
 	"fmt"
 	"strconv"
+	"strings"
+	"time"
 
+	utils "github.com/USC-NSL/Low-Latency-FaaS/utils"
 	glog "github.com/golang/glog"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -11,11 +14,18 @@ import (
 )
 
 // Defines all constants.
-const kDockerhubUser string = "165749"
-const kNFImage string = "nf:compatible"
-const kCoopSchedImage string = "coopsched:latest"
-const kClusterMasterNodeIP string = "128.105.145.58"
-const kClusterMasterNodePort string = "10515"
+const kDockerhubUser string = "ch8728847"
+const kNFImage string = "nf:debug"
+const kCoopSchedImage string = "coopsched:debug"
+const kFaaSControllerPort string = "10515"
+
+var kFaaSCluster *utils.Cluster = nil
+var kFaaSControllerIP string = ""
+
+func SetFaaSClusterInfo(cluster *utils.Cluster) {
+	kFaaSCluster = cluster
+	kFaaSControllerIP = cluster.Master.IP
+}
 
 // All kinds of possible NFs.
 var moduleNameMappings = map[string]string{
@@ -30,21 +40,34 @@ var moduleNameMappings = map[string]string{
 	"bypass":   "Bypass",
 }
 
-// Create a NF instance with type |funcType| on node |nodeName|,
+// Create an NF instance with type |nfTypes| on node |nodeName|,
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
-// In Kubernetes, the instance is run as a deployment with name "nodeName-funcType-portId".
-func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string, funcType string, hostPort int,
-	pcie string, isPrimary string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) unstructured.Unstructured {
+// In Kubernetes, the instance is run as a deployment with name "nodeName-nfTypes-portId".
+func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string,
+	nfTypes []string, hostPort int, pcie string, hostCore int,
+	isPrimary bool, isIngress bool, isEgress bool,
+	vPortIncIdx int, vPortOutIdx int) (string, unstructured.Unstructured) {
+	if kFaaSControllerIP == "" {
+		glog.Errorf("kubectl isn't aware of FaaS master node's IP. RPCs from containers will fail to reach the master node.")
+	}
+
+	// Note: a pod name must be in lower cases. A NF name is in the above mapping.
+	mods := make([]string, 0)
+	for _, nfType := range nfTypes {
+		mod, exists := moduleNameMappings[nfType]
+		if !exists {
+			mod = "None"
+		}
+		mods = append(mods, mod)
+	}
+
+	nfName := strings.Join(nfTypes, "-")
+	modNames := strings.Join(mods, ",")
 	portId := strconv.Itoa(hostPort)
 	vPortInc := strconv.Itoa(vPortIncIdx)
 	vPortOut := strconv.Itoa(vPortOutIdx)
 
-	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, funcType, portId)
-
-	moduleName, exists := moduleNameMappings[funcType]
-	if !exists {
-		moduleName = "None"
-	}
+	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, nfName, portId)
 
 	deployment := unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -83,9 +106,9 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string, funcType stri
 										"hugepages-2Mi": "128Mi",
 									},
 								},
-								"name":            funcType,
+								"name":            nfName,
 								"image":           kDockerhubUser + "/" + kNFImage,
-								"imagePullPolicy": "IfNotPresent",
+								"imagePullPolicy": "Always", //IfNotPresent
 								"ports": []map[string]interface{}{
 									{
 										// The ports between [50052, 51051] on the host is used
@@ -99,16 +122,20 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string, funcType stri
 									"/app/main",
 									"--node_name=" + nodeName,
 									"--port=" + portId,
-									"--module=" + moduleName,
-									"--primary=" + isPrimary,
-									"--ingress=" + isIngress,
-									"--egress=" + isEgress,
+									"--module=" + modNames,
+									"--primary=" + strconv.FormatBool(isPrimary),
+									"--ingress=" + strconv.FormatBool(isIngress),
+									"--egress=" + strconv.FormatBool(isEgress),
 									"--isolation_key=" + pcie,
 									"--device=" + pcie,
+									"--worker_core=" + strconv.Itoa(hostCore),
 									"--vport_inc_idx=" + vPortInc,
 									"--vport_out_idx=" + vPortOut,
-									"--faas_grpc_server=" + kClusterMasterNodeIP + ":" + kClusterMasterNodePort,
-									"--monitor_grpc_server=" + kClusterMasterNodeIP + ":" + kClusterMasterNodePort,
+									"--faas_grpc_server=" + kFaaSControllerIP + ":" + kFaaSControllerPort,
+									"--monitor_grpc_server=" + kFaaSControllerIP + ":" + kFaaSControllerPort,
+									"--redis_ip=128.105.144.32",
+									"--redis_port=6380",
+									"--redis_password=faas-nfv-cool",
 								},
 								"volumeMounts": []map[string]interface{}{
 									{ // volume 0
@@ -211,13 +238,23 @@ func (k8s *KubeController) makeDPDKDeploymentSpec(nodeName string, funcType stri
 		},
 	}
 
-	return deployment
+	return deploymentName, deployment
 }
 
 // Creates a CooperativeSched instance on the worker node |nodeName|,
 // In Kubernetes, the instance is run as a deployment with name "nodeName-sched".
-func (k8s *KubeController) makeSchedDeploymentSpec(nodeName string, hostPort int) unstructured.Unstructured {
+func (k8s *KubeController) makeSchedDeploymentSpec(nodeName string,
+	hostPort int) (string, unstructured.Unstructured) {
 	deploymentName := fmt.Sprintf("%s-coopsched", nodeName)
+	coreNum := "15"
+	// w.Cores is the total number of available cores in the worker.
+	// Note: One core is required to run gRPC and monitoring threads,
+	// and cannot be used for NF threads.
+	for _, w := range kFaaSCluster.Workers {
+		if w.Name == nodeName {
+			coreNum = fmt.Sprintf("%d", w.Cores-1)
+		}
+	}
 
 	deployment := unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -267,6 +304,7 @@ func (k8s *KubeController) makeSchedDeploymentSpec(nodeName string, hostPort int
 								},
 								"command": []string{
 									"/app/cooperative_sched",
+									"--cores=" + coreNum,
 									"--cli=0",
 									"--logtostderr=1",
 								},
@@ -279,7 +317,7 @@ func (k8s *KubeController) makeSchedDeploymentSpec(nodeName string, hostPort int
 		},
 	}
 
-	return deployment
+	return deploymentName, deployment
 }
 
 // Creates a CooperativeSched instance on node |nodeName|. Assigns
@@ -288,8 +326,7 @@ func (k8s *KubeController) CreateSchedDeployment(nodeName string, hostPort int) 
 	api := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 	deploy := k8s.dynamicClient.Resource(api).Namespace(k8s.namespace)
 
-	spec := k8s.makeSchedDeploymentSpec(nodeName, hostPort)
-	deploymentName := fmt.Sprintf("%s-coopsched", nodeName)
+	deploymentName, spec := k8s.makeSchedDeploymentSpec(nodeName, hostPort)
 
 	_, err := deploy.Create(&spec, metav1.CreateOptions{})
 	if err != nil {
@@ -299,25 +336,30 @@ func (k8s *KubeController) CreateSchedDeployment(nodeName string, hostPort int) 
 	return deploymentName, nil
 }
 
-// Create a NF instance with type |funcType| on node |nodeName| at core |workerCore|,
+// Create an NF instance with type |nfTypes| on node |nodeName| at core |workerCore|,
 // also assign the port |hostPort| of the host for the instance to receive gRPC requests.
-// Essentially, it will call function makeDPDKDeploymentSpec to generate a deployment in kubernetes.
-func (k8s *KubeController) CreateDeployment(nodeName string, funcType string, hostPort int,
-	pcie string, isPrimary string, isIngress string, isEgress string, vPortIncIdx int, vPortOutIdx int) (string, error) {
+// (Try for at most 20 seconds.)
+func (k8s *KubeController) CreateDeployment(nodeName string,
+	nfTypes []string, hostPort int, pcie string, hostCore int,
+	isPrimary bool, isIngress bool, isEgress bool,
+	vPortIncIdx int, vPortOutIdx int) (string, error) {
 	api := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 	deploy := k8s.dynamicClient.Resource(api).Namespace(k8s.namespace)
+	deploymentName, spec := k8s.makeDPDKDeploymentSpec(nodeName, nfTypes, hostPort, pcie, hostCore, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 
-	spec := k8s.makeDPDKDeploymentSpec(nodeName, funcType, hostPort, pcie, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
-	deploymentName := fmt.Sprintf("%s-%s-%s", nodeName, funcType, strconv.Itoa(hostPort))
-
-	_, err := deploy.Create(&spec, metav1.CreateOptions{})
-	if err != nil {
-		return "", err
+	var err error
+	start := time.Now()
+	for time.Now().Unix()-start.Unix() < 20 {
+		_, err = deploy.Create(&spec, metav1.CreateOptions{})
+		if err == nil { // Successful
+			glog.Infof("Deploy instance [%s] (pcie=%s,ingress=%v,egress=%v) on %s with port %d.\n",
+				strings.Join(nfTypes, ","), pcie, isIngress, isEgress, nodeName, hostPort)
+			return deploymentName, nil
+		}
 	}
-
-	glog.Infof("Create instance [%s] (pcie=%s,ingress=%s,egress=%s) on %s with port %d successfully.\n",
-		funcType, pcie, isIngress, isEgress, nodeName, hostPort)
-	return deploymentName, nil
+	glog.Errorf("Failed to deploy instance [%s] (pcie=%s,ingress=%v,egress=%v) on %s with port %d. %v\n",
+		nfTypes, pcie, isIngress, isEgress, nodeName, hostPort, err)
+	return "", err
 }
 
 // Delete a kubernetes deployment with the name |deploymentName|.

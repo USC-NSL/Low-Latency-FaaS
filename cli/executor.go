@@ -39,7 +39,7 @@ func NewExecutor(FaaSController *controller.FaaSController) *Executor {
 //    - flow |srcIp| |srcPort| |dstIp| |dstPort| |protocol|
 // 9. Set cycle parameters for a Bypass module:
 //    - cycle |nodeName| |port| |cyclePerPacket|
-// 10. Set batch size and number for a NF:
+// 10. Set batch size and number for an NF:
 //    - batch |nodeName| |port| |batchSize| |batchNumber|
 //---------------------------------------------------------
 func (e *Executor) Execute(s string) {
@@ -139,24 +139,35 @@ func (e *Executor) Execute(s string) {
 		user := words[1]
 		e.FaaSController.ActivateDAG(user)
 	} else if words[0] == "exp" {
-		user := "exp-a"
-		nf1 := e.FaaSController.AddDummyNF(user, "bypass")
-		nf2 := e.FaaSController.AddDummyNF(user, "acl")
-		e.FaaSController.ConnectNFs(user, nf1, nf2)
-
-		/*user := "exp-b"
-		nf1 := e.FaaSController.AddDummyNF(user, "acl")
-		nf2 := e.FaaSController.AddDummyNF(user, "filter")
-		nf2 := e.FaaSController.AddDummyNF(user, "chacha")
-		e.FaaSController.ConnectNFs(user, nf1, nf2)
-		e.FaaSController.ConnectNFs(user, nf2, nf3)*/
-
-		/*user := "exp-c"
-		nf1 := e.FaaSController.AddDummyNF(user, "acl")
-		nf2 := e.FaaSController.AddDummyNF(user, "nat")
-		e.FaaSController.ConnectNFs(user, nf1, nf2)*/
-
-		e.FaaSController.ActivateDAG(user)
+		if len(words) == 2 {
+			// For testing only, packets always have a dstPort 8080.
+			if words[1] == "a" {
+				user := "exp-a"
+				nf2 := e.FaaSController.AddDummyNF(user, "acl")
+				nf1 := e.FaaSController.AddDummyNF(user, "vlanpush")
+				e.FaaSController.ConnectNFs(user, nf1, nf2)
+				e.FaaSController.AddFlow(user, "", "", 0, 8080, 0)
+				e.FaaSController.ActivateDAG(user)
+			} else if words[1] == "b" {
+				user := "exp-b"
+				nf1 := e.FaaSController.AddDummyNF(user, "acl")
+				nf2 := e.FaaSController.AddDummyNF(user, "urlfilter")
+				nf3 := e.FaaSController.AddDummyNF(user, "chacha")
+				e.FaaSController.ConnectNFs(user, nf1, nf2)
+				e.FaaSController.ConnectNFs(user, nf2, nf3)
+				e.FaaSController.AddFlow(user, "", "", 0, 8080, 0)
+				e.FaaSController.ActivateDAG(user)
+			} else if words[1] == "c" {
+				user := "exp-c"
+				nf1 := e.FaaSController.AddDummyNF(user, "acl")
+				nf2 := e.FaaSController.AddNF(user, "nat")
+				e.FaaSController.ConnectNFs(user, nf1, nf2)
+				e.FaaSController.AddFlow(user, "", "", 0, 8080, 0)
+				e.FaaSController.ActivateDAG(user)
+			}
+		} else {
+			fmt.Println("Usage: exp [a|b|c]")
+		}
 	} else if words[0] == "cycle" && len(words) >= 4 {
 		nodeName := words[1]
 		port, _ := strconv.Atoi(words[2])
@@ -169,10 +180,8 @@ func (e *Executor) Execute(s string) {
 		port, _ := strconv.Atoi(words[2])
 		batchSize, _ := strconv.Atoi(words[3])
 		batchNumber, _ := strconv.Atoi(words[4])
-		if msg, err := e.FaaSController.SetBatch(nodeName, port, batchSize, batchNumber); err != nil {
+		if err := e.FaaSController.SetBatch(nodeName, port, batchSize, batchNumber); err != nil {
 			fmt.Printf("Failed to set batch size on instance (port=%d) of worker %s: %s!\n", port, nodeName, err.Error())
-		} else if msg != "" {
-			fmt.Println("Response: " + msg)
 		}
 	}
 }

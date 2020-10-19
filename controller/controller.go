@@ -7,10 +7,19 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
+	kubectl "github.com/USC-NSL/Low-Latency-FaaS/kubectl"
+	utils "github.com/USC-NSL/Low-Latency-FaaS/utils"
 	glog "github.com/golang/glog"
 )
+
+const (
+	kMaxCountSGroupsStartupPerWorker = 20
+)
+
+var controllerOption string
 
 // The controller of the FaaS system for NFV.
 // |ToRGRPCHandler| are functions to handle gRPC requests to the ToR switch.
@@ -19,20 +28,29 @@ import (
 // |dags| maintains all logical representations of NF DAGs.
 type FaaSController struct {
 	grpc.ToRGRPCHandler
+	ofctlRpc grpc.OfctlRpcHandler
 	workers  map[string]*Worker
 	dags     map[string]*DAG
 	masterIP string
+	ofctlIP  string
+	logger   *FaaSLogger
 }
 
 // Creates a new FaaS controller.
-func NewFaaSController(isTest bool, cluster *Cluster) *FaaSController {
+func NewFaaSController(isTest bool, ctlOption string, cluster *utils.Cluster) *FaaSController {
+	controllerOption = ctlOption
 	c := &FaaSController{
 		workers:  make(map[string]*Worker),
 		dags:     make(map[string]*DAG),
 		masterIP: cluster.Master.IP,
+		ofctlIP:  cluster.Ofctl.IP,
+		logger:   nil,
 	}
+	c.logger = NewFaaSLogger(c)
 
-	// Initializes all worker nodes when starting a |FaaSController|.
+	kubectl.SetFaaSClusterInfo(cluster)
+
+	// Creates all worker nodes.
 	// Note: at each worker machine, core 0 is reserved for the scheduler on
 	// the machine. Then, coreNum is set to Cores - 1 because these cores are
 	// for running NFs.
@@ -45,22 +63,47 @@ func NewFaaSController(isTest bool, cluster *Cluster) *FaaSController {
 		c.createWorker(name, ip, 1, coreNum, pcie, switchPort)
 	}
 
-	// If we are running tests, skip initializing all free SGroups because tests
-	// are expected to create their free SGroups.
+	// If we are running tests, skip initializing all free SGroups
+	// because these tests are expected to create their free SGroups.
 	if !isTest {
-		// Initializes per-worker hugepages, NIC queues, and schedulers.
-		var wg sync.WaitGroup
-		wg.Add(len(c.workers))
+		if controllerOption == "faas" {
+			// Initializes each worker.
+			for _, w := range c.workers {
+				w.faasInit()
+			}
 
-		for _, w := range c.workers {
-			go func(w *Worker) {
-				w.createAllFreeSGroups()
-				w.createSched()
-				wg.Done()
-			}(w)
+			// Initializes per-worker hugepages, NIC queues, and schedulers.
+			var wg sync.WaitGroup
+			wg.Add(len(c.workers))
+			for _, w := range c.workers {
+				go func(w *Worker) {
+					w.createAllFreeSGroups()
+					w.createSched()
+					wg.Done()
+				}(w)
+			}
+			wg.Wait()
+		} else if controllerOption == "metron" {
+			for _, w := range c.workers {
+				w.metronInit()
+			}
+
+			// Initializes per-worker hugepages, NIC queues, and schedulers.
+			var wg sync.WaitGroup
+			wg.Add(len(c.workers))
+			for _, w := range c.workers {
+				go func(w *Worker) {
+					w.createAllFreeSGroups()
+					wg.Done()
+				}(w)
+			}
+			wg.Wait()
+
+			// Connects to the ofctl service.
+			c.ofctlRpc.EstablishConnection(c.ofctlIP, kControlPlaneRedisPass, 1)
 		}
 
-		wg.Wait()
+		go c.logger.RunFaaSLogger()
 	}
 
 	return c
@@ -90,13 +133,14 @@ func (c *FaaSController) Close() error {
 	wgDone := make(chan bool)
 
 	var wg sync.WaitGroup
-	wg.Add(len(c.workers))
+	wg.Add(len(c.workers) + 1)
 
 	go func() {
 		wg.Wait()
 		close(wgDone)
 	}()
 
+	// Stops all workers.
 	for _, w := range c.workers {
 		go func(w *Worker) {
 			if err := w.Close(); err != nil {
@@ -105,6 +149,13 @@ func (c *FaaSController) Close() error {
 			wg.Done()
 		}(w)
 	}
+	// Stops the logger.
+	go func(l *FaaSLogger) {
+		l.StopFaaSLogger()
+		wg.Done()
+	}(c.logger)
+
+	c.ofctlRpc.CloseConnection()
 
 	select {
 	case <-wgDone:
@@ -166,25 +217,53 @@ func (c *FaaSController) ConnectNFs(user string, upNF int, downNF int) error {
 	return c.dags[user].connectNFs(upNF, downNF)
 }
 
-// Starts running a NF DAG.
+func (c *FaaSController) AddFlow(user string, srcIP string, dstIP string, srcPort uint32, dstPort uint32, protoIP uint32) error {
+	dag, exists := c.dags[user]
+	if !exists {
+		return errors.New(fmt.Sprintf("User [%s] does not exist.", user))
+	}
+
+	dag.addFlow(srcIP, dstIP, srcPort, dstPort, protoIP)
+	return nil
+}
+
+// Prepare to deploy NF chains for an NF DAG.
 func (c *FaaSController) ActivateDAG(user string) error {
 	dag, exists := c.dags[user]
 	if !exists {
 		return errors.New(fmt.Sprintf("User [%s] has no NFs.", user))
 	}
-
-	// For testing only, incoming packets always have a dstPort 8080.
-	dag.addFlow("", "", 0, 8080, 0)
+	if len(dag.flowlets) == 0 {
+		return errors.New(fmt.Sprintf("User [%s] has no target flowlets.", user))
+	}
 
 	dag.Activate()
 
-	for {
-		sg := c.getFreeSGroup()
-		if sg == nil {
-			break
-		}
+	if controllerOption == "faas" { // FaaS-NFV starts up.
+		// Starts NF chains at all available free SGroups.
+		var wg sync.WaitGroup
+		wg.Add(len(c.workers))
 
-		sg.worker.createSGroup(sg, dag)
+		for _, w := range c.workers {
+			go func(w *Worker) {
+				for {
+					sg := w.getFreeSGroup()
+					if sg != nil {
+						for w.countPendingSGroups() >= kMaxCountSGroupsStartupPerWorker {
+							time.Sleep(500 * time.Millisecond)
+						}
+
+						sg.worker.createSGroup(sg, dag)
+					} else {
+						break
+					}
+				}
+				wg.Done()
+			}(w)
+		}
+		wg.Wait()
+	} else if controllerOption == "metron" { // Metron starts up.
+		c.metronStartUp()
 	}
 
 	glog.Info("DAG is activated.")
@@ -283,11 +362,14 @@ func (c *FaaSController) InstanceSetUp(nodeName string, port int, tid int) error
 	}
 
 	ins := w.insStartupPool.get(port)
-	if ins == nil || ins.sg == nil {
+	if ins == nil {
 		return errors.New(fmt.Sprintf("SGroup not found"))
 	}
+	ins.setTid(tid)
 
-	ins.sg.UpdateTID(port, tid)
+	if ins.sg != nil {
+		ins.sg.preprocessBeforeReady()
+	}
 	return nil
 }
 
@@ -307,7 +389,10 @@ func (c *FaaSController) InstanceUpdateStats(nodeName string, port int, qlen int
 	}
 
 	ins.UpdateTrafficInfo(qlen, kpps, cycle)
-	ins.sg.UpdateTrafficInfo()
+	// Update the chain info only upon a egress node updates.
+	if ins.isEgress {
+		ins.sg.UpdateTrafficInfo()
+	}
 	return nil
 }
 
@@ -322,10 +407,10 @@ func (c *FaaSController) SetCycles(nodeName string, port int, cyclesPerPacket in
 
 // Set batch size and batch number for instance on worker |nodeName| with port |port|.
 // See message.proto for more information.
-func (c *FaaSController) SetBatch(nodeName string, port int, batchSize int, batchNumber int) (string, error) {
+func (c *FaaSController) SetBatch(nodeName string, port int, batchSize int, batchNumber int) error {
 	w, exists := c.workers[nodeName]
 	if !exists {
-		return "", fmt.Errorf("Worker[%s] does not exist", nodeName)
+		return fmt.Errorf("Worker[%s] does not exist", nodeName)
 	}
 	return w.setBatch(port, batchSize, batchNumber)
 }

@@ -5,18 +5,27 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"time"
 
 	glog "github.com/golang/glog"
 )
 
 const (
-	NIC_RX_QUEUE_LENGTH          = 4096
-	NIC_TX_QUEUE_LENGTH          = 4096
-	STARTUP_CORE_ID              = 1
-	INVALID_CORE_ID              = -1
+	// The default NIC hardware rx/tx queue size.
+	NIC_RX_QUEUE_LENGTH = 4096
+	NIC_TX_QUEUE_LENGTH = 4096
+
+	// FaaS Core IDs
+	kFaaSInvalidCoreID = -1
+	kFaaSStartCoreID   = 19
+	kFaaSIdleCoreID    = 1
+
+	// The context switch time in CPU cycles
 	CONTEXT_SWITCH_CYCLE_COST_PP = 5100
-	// A SGroup turns idel if it has been idel for at least 10 traffic samples.
-	MIN_IDLE_DURATION = 10
+
+	// A SGroup turns idle if it has been idle for this amount of samples.
+	// By default, the monitoring period is 300ms.
+	MIN_IDLE_DURATION = 15
 )
 
 // These are default PCIe devices in a host. Each of these devices has its
@@ -60,8 +69,7 @@ var DefaultDstMACs = []string{
 var SupportQueueLength bool
 
 func init() {
-	flag.BoolVar(&SupportQueueLength, "SupportqueueLength", false, "Whether the PMD supports rte_eth_rx_queue_count function")
-	flag.Parse()
+	flag.BoolVar(&SupportQueueLength, "supportnicqueue", false, "Whether the PMD supports rte_eth_rx_queue_count function")
 	fmt.Printf("NIC supports queue count: %v\n", SupportQueueLength)
 }
 
@@ -93,6 +101,7 @@ type SGroup struct {
 	manager          *Instance
 	groupID          int
 	pcieIdx          int
+	isComplete       bool
 	isReady          bool
 	isActive         bool
 	isSched          bool
@@ -110,14 +119,17 @@ type SGroup struct {
 	maxRateKpps      int
 	worker           *Worker
 	coreID           int
+	dag              *DAG
 	mutex            sync.Mutex
 }
 
+// Creates a new SGroup (free) and its associated primary NF instance.
+// The instance manages system resources for |sg|.
 func newSGroup(w *Worker, pcieIdx int) *SGroup {
-	glog.Infof("Create a new SGroup at worker[%s]:pcie[%d]", w.name, pcieIdx)
 	sg := SGroup{
 		groupID:          pcieIdx,
 		pcieIdx:          pcieIdx,
+		isComplete:       false,
 		isReady:          false,
 		isActive:         false,
 		isSched:          false,
@@ -134,15 +146,17 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 		pktRateKpps:      0,
 		maxRateKpps:      800,
 		worker:           w,
-		coreID:           INVALID_CORE_ID,
+		coreID:           kFaaSInvalidCoreID,
+		dag:              nil,
 	}
 
-	isPrimary := "true"
-	isIngress := "false"
-	isEgress := "false"
+	isPrimary := true
+	isIngress := false
+	isEgress := false
 	vPortIncIdx := 0
 	vPortOutIdx := 0
-	ins, err := w.createInstance("prim", 0, pcieIdx, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
+
+	ins, err := w.createInstance([]string{"prim"}, 0, pcieIdx, kFaaSStartCoreID, isPrimary, isIngress, isEgress, vPortIncIdx, vPortOutIdx)
 	if err != nil {
 		// Fail to create the head instance. Cleanup..
 		glog.Errorf("Failed to create Instance. %v", err)
@@ -150,6 +164,7 @@ func newSGroup(w *Worker, pcieIdx int) *SGroup {
 	}
 
 	// Succeed.
+	glog.Infof("Create a free SGroup %d at Worker[%s]:pcie[%d]", sg.groupID, w.name, pcieIdx)
 	sg.manager = ins
 	return &sg
 }
@@ -158,8 +173,8 @@ func (sg *SGroup) String() string {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
-	qLoad := 100 * sg.incQueueLength / sg.incQueueCapacity
-	pLoad := 100 * sg.pktRateKpps / sg.maxRateKpps
+	qLoad := sg.getQLoad()
+	pLoad := sg.getPktLoad()
 
 	info := "["
 	for i, ins := range sg.instances {
@@ -189,12 +204,14 @@ func (sg *SGroup) Reset() {
 	for _, ins := range sg.instances {
 		err := sg.worker.destroyInstance(ins)
 		if err != nil {
-			glog.Errorf("Failed to remove Pod[%s] in SGroup[%d]. %v", ins.funcType, sg.ID(), err)
+			glog.Errorf("Failed to remove Instance %s from SGroup %d. %v", ins.funcType, sg.ID(), err)
 		}
+		glog.Infof("remove %s", ins.funcType)
 	}
 
 	sg.instances = nil
 	sg.tids = nil
+	sg.dag = nil
 }
 
 // Appends a new Instance |ins| to the end of this SGroup |sg|.
@@ -206,9 +223,19 @@ func (sg *SGroup) AppendInstance(ins *Instance) {
 	sg.instances = append(sg.instances, ins)
 }
 
-// This function adjusts the batch parameters for all instances
-// in this SGroup. It calculates the appropriate values based on
-// the profiled NF cycle costs.
+// This function adjusts the runtime and scheduling parameters for
+// all instances in |sg|.
+func (sg *SGroup) adjustRuntimeConfig() {
+	for _, ins := range sg.instances {
+		if ins.funcType == "bypass" {
+			if err := ins.setCycles(ins.profiledCycle); err != nil {
+				glog.Errorf("%v", err)
+			}
+		}
+	}
+	glog.Infof("Finish setting the runtime config for SGroup (w:%s, idx:%d)", sg.worker.name, sg.groupID)
+}
+
 func (sg *SGroup) adjustBatchCount() {
 	sumCycleCost := 0
 	for _, ins := range sg.instances {
@@ -220,69 +247,91 @@ func (sg *SGroup) adjustBatchCount() {
 	//sg.batchCount = int(math.Pow(2, math.Ceil(math.Log2(cnt))))
 
 	for _, ins := range sg.instances {
-		for try := 0; try < 3; try += 1 {
-			if msg, err := ins.setBatch(sg.batchSize, sg.batchCount); err != nil {
-				glog.Errorf("Failed to set batch for Instance %s. %v", ins.funcType, err)
-			} else if msg != "" {
-				glog.Errorf("Response: " + msg)
+		if err := ins.setBatch(sg.batchSize, sg.batchCount); err != nil {
+			glog.Errorf("%v", err)
+		}
+	}
+	glog.Infof("Finish setting the batch size for SGroup (w:%s, idx:%d)", sg.worker.name, sg.groupID)
+}
+
+// Note: the corresponding worker's sgMutex is likely held by the
+// background scheduler. Do not acquire the lock directly.
+// Checks if the sg is ready to serve traffic.
+// (1) are all instances up?
+// (2) are all instances in this worker connected?
+// (3) are all instances detached on core 0?
+func (sg *SGroup) preprocessBeforeReady() {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+
+	// Ignore unnecessary and duplicated calls.
+	if !sg.isComplete || sg.isReady {
+		return
+	}
+
+	ready := true
+	for _, ins := range sg.instances {
+		if ins.tid == kUninitializedTid {
+			ready = false
+			break
+		}
+	}
+
+	if ready {
+		for _, ins := range sg.instances {
+			sg.tids = append(sg.tids, int32(ins.tid))
+		}
+		glog.Infof("SGroup (w:%s, idx:%d) is ready. Connecting...", sg.worker.name, sg.ID())
+		sg.adjustRuntimeConfig()
+
+		if controllerOption == "metron" {
+			sg.isReady = true
+			sg.isActive = true
+			sg.isSched = true
+			return
+		}
+
+		sg.adjustBatchCount()
+		w := sg.worker
+		w.upMutex.Lock()
+		w.sgroupConns = append(w.sgroupConns, sg.groupID)
+		w.upMutex.Unlock()
+
+		for {
+			if !w.isAllSGroupsConnected() {
+				time.Sleep(4 * time.Second)
 			} else {
 				break
 			}
 		}
 
-		if ins.funcType == "bypass" {
-			// All connections have been set up.
-			if err := ins.setCycles(ins.profiledCycle); err != nil {
-				glog.Errorf("Failed to set batch for Instance %s. %v", ins.funcType, err)
-			}
-		}
-	}
-}
-
-func (sg *SGroup) UpdateTID(port int, tid int) {
-	sg.mutex.Lock()
-	defer sg.mutex.Unlock()
-
-	ready := true
-	for _, ins := range sg.instances {
-		if ins.ID() == port {
-			ins.tid = tid
-		}
-		if ins.tid == kUninitializedTid {
-			ready = false
-		}
-	}
-
-	if ready {
-		sg.adjustBatchCount()
-
-		for _, ins := range sg.instances {
-			sg.tids = append(sg.tids, int32(ins.tid))
-		}
-
 		// Sends gRPC request to inform the scheduler.
-		glog.Infof("SGroup %d is ready. Notify the scheduler", sg.ID())
-
-		w := sg.worker
+		glog.Infof("Notify the scheduler to manage SGroup (w:%s, idx:%d)", sg.worker.name, sg.ID())
 
 		// Calls gRPC functions directly to avoid deadlocks.
 		if _, err := w.SetupChain(sg.tids); err != nil {
 			glog.Errorf("Failed to notify the scheduler. %s", err)
 		}
 
-		coreID := STARTUP_CORE_ID
+		time.Sleep(100 * time.Millisecond)
+
+		coreID := kFaaSIdleCoreID
 		if status, err := w.AttachChain(sg.tids, coreID); err != nil {
 			glog.Errorf("Failed to attach SGroup[%d] on core #1. %s", sg.ID(), err)
 		} else if status.GetCode() != 0 {
 			glog.Errorf("AttachChain gRPC request errmsg: %s", status.GetErrmsg())
 		}
 
+		time.Sleep(100 * time.Millisecond)
+
 		core, exists := w.cores[coreID]
 		if !exists {
 			glog.Errorf("Core[%d] not found", coreID)
 		} else {
-			core.attachSGroup(sg)
+			core.addSGroup(sg)
 		}
+
+		time.Sleep(100 * time.Millisecond)
 
 		sg.coreID = 1
 		sg.isReady = true
@@ -398,21 +447,11 @@ func (sg *SGroup) GetPktRate() int {
 	return sg.pktRateKpps
 }
 
-// Returns the current packet rate devided by the estimated max
-// packet rate (in percentage value).
-// Note: |sg.maxRateKpps| has considered the context switching overhead.
 func (sg *SGroup) GetPktLoad() int {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
-	// The old packet load: (no context switching overhead)
-	// CPU load = 100 * (packetRate * sumCycles) / (CPU Frequency)
-	// i.e. 100 * (sg.pktRateKpps * 1000 * sg.sumCycles) / (1700 * 1000,000)
-	// return (sg.pktRateKpps * sg.sumCycles) / 1700 * 10
-	if sg.maxRateKpps == 0 {
-		return 0
-	}
-	return 100 * sg.pktRateKpps / sg.maxRateKpps
+	return sg.getPktLoad()
 }
 
 func (sg *SGroup) SetCoreID(coreID int) {
@@ -422,11 +461,38 @@ func (sg *SGroup) SetCoreID(coreID int) {
 	sg.coreID = coreID
 }
 
+func (sg *SGroup) IsCoreIDValid() bool {
+	sg.mutex.Lock()
+	defer sg.mutex.Unlock()
+	return sg.coreID != kFaaSInvalidCoreID
+}
+
 func (sg *SGroup) GetCoreID() int {
 	sg.mutex.Lock()
 	defer sg.mutex.Unlock()
 
 	return sg.coreID
+}
+
+func (sg *SGroup) getQLoad() int {
+	if sg.incQueueCapacity <= 0 {
+		return 0
+	}
+	return 100 * sg.incQueueLength / sg.incQueueCapacity
+}
+
+// Returns the current packet rate devided by the estimated max
+// packet rate (in percentage value).
+// Note: |sg.maxRateKpps| has considered the context switching overhead.
+// This is the old packet load formula: (no context switching overhead)
+// CPU load = 100 * (packetRate * sumCycles) / (CPU Frequency)
+// i.e. 100 * (sg.pktRateKpps * 1000 * sg.sumCycles) / (1700 * 1000,000)
+// return (sg.pktRateKpps * sg.sumCycles) / 1700 * 10
+func (sg *SGroup) getPktLoad() int {
+	if sg.maxRateKpps == 0 {
+		return 0
+	}
+	return 100 * sg.pktRateKpps / sg.maxRateKpps
 }
 
 // Migrates/Schedules a SGroup with |groupId| to core |coreId|.
@@ -443,12 +509,12 @@ func (sg *SGroup) attachSGroup(coreID int) error {
 
 	sg.SetCoreID(coreID)
 	sg.SetSched(true)
-	glog.Infof("SGroup[%d] runs on Core[%d]", sg.ID(), coreID)
+	glog.Infof("SGroup[%d] runs on W %s Core[%d]", sg.ID(), sg.worker.name, coreID)
 	return nil
 }
 
 func (sg *SGroup) detachSGroup() error {
-	if sg.GetCoreID() == INVALID_CORE_ID {
+	if sg.GetCoreID() == kFaaSInvalidCoreID {
 		return fmt.Errorf("SGroup[%d] is not running", sg.ID())
 	}
 	if !sg.IsSched() {
@@ -462,6 +528,6 @@ func (sg *SGroup) detachSGroup() error {
 	}
 
 	sg.SetSched(false)
-	glog.Infof("SGroup[%d] is detached on Core[%d]", sg.ID(), sg.GetCoreID())
+	glog.Infof("SGroup[%d] is detached on W %s Core[%d]", sg.ID(), sg.worker.name, sg.GetCoreID())
 	return nil
 }

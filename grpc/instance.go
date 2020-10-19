@@ -3,12 +3,11 @@ package grpc
 import (
 	"context"
 	"errors"
-	"time"
 
 	pb "github.com/USC-NSL/Low-Latency-FaaS/proto"
 )
 
-// The handler for sending gRPC requests to a NF instance.
+// The handler for sending gRPC requests to an NF instance.
 // |GRPCClient| is the struct to maintain the gRPC connection.
 type InstanceGRPCHandler struct {
 	GRPCClient
@@ -22,8 +21,8 @@ func (handler *InstanceGRPCHandler) GetTCStatsForInstance(address string) (*pb.G
 		return nil, errors.New("connection does not exist")
 	}
 
-	// Add context for gRPC request to set timeout to one second
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	// Add gRPC context to set timeout for this request
+	ctx, cancel := context.WithTimeout(context.Background(), kGrpcReqTimeout)
 	defer cancel()
 
 	client := pb.NewInstanceControlClient(handler.grpcConn)
@@ -39,8 +38,8 @@ func (handler *InstanceGRPCHandler) GetPortQueueStatsForInstance(address string)
 		return nil, errors.New("connection does not exist")
 	}
 
-	// Add context for gRPC request to set timeout to one second
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	// Add gRPC context to set timeout for this request
+	ctx, cancel := context.WithTimeout(context.Background(), kGrpcReqTimeout)
 	defer cancel()
 
 	client := pb.NewInstanceControlClient(handler.grpcConn)
@@ -54,8 +53,8 @@ func (handler *InstanceGRPCHandler) SetCycles(cyclesPerPacket int) (*pb.EmptyArg
 		return nil, errors.New("connection does not exist")
 	}
 
-	// Add context for gRPC request to set timeout to one second
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	// Add gRPC context to set timeout for this request
+	ctx, cancel := context.WithTimeout(context.Background(), kGrpcReqTimeout)
 	defer cancel()
 
 	client := pb.NewInstanceControlClient(handler.grpcConn)
@@ -74,8 +73,8 @@ func (handler *InstanceGRPCHandler) SetBatch(batchSize int, batchNumber int) (*p
 		return nil, errors.New("connection does not exist")
 	}
 
-	// Add context for gRPC request to set timeout to one second
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	// Add gRPC context to set timeout for this request
+	ctx, cancel := context.WithTimeout(context.Background(), kGrpcReqTimeout)
 	defer cancel()
 
 	client := pb.NewInstanceControlClient(handler.grpcConn)

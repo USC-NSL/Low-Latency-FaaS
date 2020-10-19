@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"time"
 
 	grpc "github.com/USC-NSL/Low-Latency-FaaS/grpc"
+	utils "github.com/USC-NSL/Low-Latency-FaaS/utils"
+	glog "github.com/golang/glog"
 )
 
 // Note: |Instance| is not a thread-safe type! All instances are
@@ -13,7 +16,13 @@ import (
 // DO NOT EXPORT |Instance|.
 
 // Default value for tid of an uninitialized instance.
-const kUninitializedTid int = -1
+const (
+	kUninitializedTid = -1
+
+	kMaxRpcConnTrials = 3
+	// The max number of trials of making a gRPC call to an instance
+	kMaxRpcCallTrials = 5
+)
 
 // The abstraction of NF instance.
 // |InstanceGRPCHandler| are handlers for gRPC requests sent
@@ -33,6 +42,8 @@ type Instance struct {
 	grpc.InstanceGRPCHandler
 	funcType       string
 	isNF           bool
+	isIngress      bool
+	isEgress       bool
 	port           int
 	address        string
 	podName        string
@@ -44,12 +55,15 @@ type Instance struct {
 	pktRateKpps    int
 	cond           *sync.Cond
 	mutex          sync.Mutex
+	backoff        *utils.Backoff
 }
 
-func newInstance(funcType string, cycleCost int, hostIp string, port int, podName string) *Instance {
+func newInstance(funcType string, ingress bool, egress bool, cycleCost int, hostIp string, port int, podName string) *Instance {
 	instance := Instance{
 		funcType:       funcType,
 		isNF:           (funcType != "prim" && funcType != "sched"),
+		isIngress:      ingress,
+		isEgress:       egress,
 		port:           port,
 		address:        hostIp + ":" + strconv.Itoa(port),
 		podName:        podName,
@@ -59,6 +73,7 @@ func newInstance(funcType string, cycleCost int, hostIp string, port int, podNam
 		incQueueLength: 0,
 		pktRateKpps:    0,
 		cond:           sync.NewCond(&sync.Mutex{}),
+		backoff:        &utils.Backoff{Min: 100 * time.Millisecond, Max: 5 * time.Second, Factor: 2, Jitter: true},
 	}
 	return &instance
 }
@@ -77,25 +92,65 @@ func (ins *Instance) ID() int {
 	return ins.port
 }
 
+func (ins *Instance) connect() error {
+	ins.backoff.Reset()
+	for try := 0; try < kMaxRpcConnTrials; try += 1 {
+		err := ins.InstanceGRPCHandler.EstablishConnection(ins.address)
+		if err == nil {
+			return nil
+		} else {
+			glog.Warningf("%v (%s, idx=%d, trial=%d)", err, ins.sg.worker.name, ins.sg.groupID, try)
+		}
+		time.Sleep(ins.backoff.Duration())
+	}
+
+	return fmt.Errorf("Failed all trials to connect Instance %s", ins.funcType)
+}
+
 func (ins *Instance) setCycles(cyclesPerPacket int) error {
 	if !ins.InstanceGRPCHandler.IsConnEstablished() {
-		if err := ins.InstanceGRPCHandler.EstablishConnection(ins.address); err != nil {
+		if err := ins.connect(); err != nil {
 			return err
 		}
 	}
-	_, err := ins.SetCycles(cyclesPerPacket)
-	return err
+
+	ins.backoff.Reset()
+	for try := 0; try < kMaxRpcCallTrials; try += 1 {
+		_, err := ins.SetCycles(cyclesPerPacket)
+		if err == nil {
+			return nil
+		} else {
+			glog.Warningf("Failed (trial=%d) to set cycle for Instance %s. %v", try, ins.funcType, err)
+		}
+		time.Sleep(ins.backoff.Duration())
+	}
+
+	return fmt.Errorf("Failed all trials to set cycle for Instance %s", ins.funcType)
 }
 
-func (ins *Instance) setBatch(batchSize int, batchNumber int) (string, error) {
+func (ins *Instance) setBatch(batchSize int, batchNumber int) error {
 	if !ins.InstanceGRPCHandler.IsConnEstablished() {
-		if err := ins.InstanceGRPCHandler.EstablishConnection(ins.address); err != nil {
-			return "", err
+		if err := ins.connect(); err != nil {
+			return err
 		}
 	}
-	response, err := ins.SetBatch(batchSize, batchNumber)
-	msg := response.GetError().GetErrmsg()
-	return msg, err
+
+	ins.backoff.Reset()
+	for try := 0; try < kMaxRpcCallTrials; try += 1 {
+		response, err := ins.SetBatch(batchSize, batchNumber)
+		msg := response.GetError().GetErrmsg()
+
+		if err == nil && msg == "" {
+			return nil
+		} else if err != nil {
+			glog.Warningf("Failed (trial=%d) to set batch for Instance %s. %v", try, ins.funcType, err)
+		} else {
+			glog.Warningf("Error response: " + msg)
+		}
+		time.Sleep(ins.backoff.Duration())
+	}
+
+	return fmt.Errorf("Failed all trials to set batch for Instance %s", ins.funcType)
 }
 
 func (ins *Instance) UpdateTrafficInfo(qlen int, kpps int, cycle int) {
@@ -126,4 +181,11 @@ func (ins *Instance) getCycle() int {
 	defer ins.mutex.Unlock()
 
 	return ins.cycle
+}
+
+func (ins *Instance) setTid(tid int) {
+	ins.mutex.Lock()
+	defer ins.mutex.Unlock()
+
+	ins.tid = tid
 }

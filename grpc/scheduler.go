@@ -3,7 +3,6 @@ package grpc
 import (
 	"context"
 	"errors"
-	"time"
 
 	pb "github.com/USC-NSL/Low-Latency-FaaS/proto"
 )
@@ -21,8 +20,8 @@ func (handler *SchedulerGRPCHandler) SetupChain(tids []int32) (*pb.Error, error)
 		return nil, errors.New("connection does not exist")
 	}
 
-	// Add context for gRPC request to set timeout to one second
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	// Add gRPC context to set timeout for this request
+	ctx, cancel := context.WithTimeout(context.Background(), kGrpcReqTimeout)
 	defer cancel()
 
 	client := pb.NewSchedulerControlClient(handler.grpcConn)
@@ -38,8 +37,8 @@ func (handler *SchedulerGRPCHandler) RemoveChain(tids []int32) (*pb.Error, error
 		return nil, errors.New("connection does not exist")
 	}
 
-	// Add context for gRPC request to set timeout to one second
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	// Add gRPC context to set timeout for this request
+	ctx, cancel := context.WithTimeout(context.Background(), kGrpcReqTimeout)
 	defer cancel()
 
 	client := pb.NewSchedulerControlClient(handler.grpcConn)
@@ -53,8 +52,8 @@ func (handler *SchedulerGRPCHandler) AttachChain(tids []int32, core int) (*pb.Er
 		return nil, errors.New("connection does not exist")
 	}
 
-	// Add context for gRPC request to set timeout to one second
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	// Add gRPC context to set timeout for this request
+	ctx, cancel := context.WithTimeout(context.Background(), kGrpcReqTimeout)
 	defer cancel()
 
 	client := pb.NewSchedulerControlClient(handler.grpcConn)
@@ -69,8 +68,8 @@ func (handler *SchedulerGRPCHandler) DetachChain(tids []int32, core int) (*pb.Er
 		return nil, errors.New("connection does not exist")
 	}
 
-	// Add context for gRPC request to set timeout to one second
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	// Add gRPC context to set timeout for this request
+	ctx, cancel := context.WithTimeout(context.Background(), kGrpcReqTimeout)
 	defer cancel()
 
 	client := pb.NewSchedulerControlClient(handler.grpcConn)
@@ -85,8 +84,8 @@ func (handler *SchedulerGRPCHandler) KillSched() (*pb.EmptyResponse, error) {
 		return nil, errors.New("connection does not exist")
 	}
 
-	// Add context for gRPC request to set timeout to one second
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	// Add gRPC context to set timeout for this request
+	ctx, cancel := context.WithTimeout(context.Background(), kGrpcReqTimeout)
 	defer cancel()
 
 	client := pb.NewSchedulerControlClient(handler.grpcConn)

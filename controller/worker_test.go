@@ -61,11 +61,11 @@ func TestStartNFChain(t *testing.T) {
 	}
 
 	if len(sg.instances) != len(dag.chains) {
-		t.Errorf("Failed to deploy a NF DAG")
+		t.Errorf("Failed to deploy an NF DAG")
 	}
 
 	elapsed := time.Now().Sub(start)
-	t.Logf("Time to deploy a NF chain: %s", elapsed.String())
+	t.Logf("Time to deploy an NF chain: %s", elapsed.String())
 
 	// Deletes instances.
 	w.destroySGroup(sg)

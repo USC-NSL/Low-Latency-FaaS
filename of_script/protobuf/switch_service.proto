@@ -7,6 +7,9 @@ import "protobuf/message.proto";
 package bess.pb;
 
 service SwitchControl {
-	// Deletes one flow entry from FaaSConnTable.
-    rpc DeleteFlowEntry (FlowTableEntry) returns (google.protobuf.Empty) {}
+    // Inserts one flow entry into FaaSConnTable.
+    rpc InsertFlowEntry (InsertFlowEntryRequest) returns (google.protobuf.Empty) {}
+
+    // Deletes one flow entry from FaaSConnTable.
+    rpc DeleteFlowEntry (DeleteFlowEntryRequest) returns (google.protobuf.Empty) {}
 }

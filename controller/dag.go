@@ -57,6 +57,10 @@ func (g *DAG) String() string {
 	return strings.Join(dag, " ")
 }
 
+func (g *DAG) IsActive() bool {
+	return g.isActive
+}
+
 // This function adds a logical NF of |funcType| to DAG |g|.
 // Returns an integral handler of this added NF.
 func (g *DAG) addNF(funcType string) int {
@@ -157,6 +161,11 @@ func (g *DAG) Activate() error {
 	}
 
 	g.isActive = true
-	fmt.Printf("Activated chains: %v\n", g.chains)
+
+	chainStr := make([]string, 0)
+	for _, i := range g.chains {
+		chainStr = append(chainStr, i.funcType)
+	}
+	fmt.Printf("Activated chains:\n%v\n", chainStr)
 	return nil
 }

@@ -11,6 +11,8 @@ service FaaSControl {
 	// so that the controller can set up new instances to serve the flow.
 	rpc UpdateFlow (FlowInfo) returns (FlowTableEntry) {}
 
+    rpc UpdatePort(PortInfo) returns (UpdatePortResponse) {}
+
     // New instances inform their TIDs, which are used by the 
     // scheduler to enforce scheduling policies.
     rpc InstanceSetUp (InstanceInfo) returns (Error) {}

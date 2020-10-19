@@ -6,6 +6,7 @@ import scapy.all as scapy
 num_cores=int($BESS_CORES!'1')
 num_flows=int($BESS_FLOWS!'400')
 base_rate=int($BESS_INIT_RATE!'4000000')
+ts_offset = 64
 
 flow_time = 40 #five seconds long
 
@@ -35,10 +36,11 @@ for wid in range(num_cores):
         flow_rate = num_flows / flow_time, \
         flow_duration = flow_time, \
         arrival = 'uniform', duration='uniform', quick_rampup=False, \
-    ip_src_range = 50, ip_dst_range = 50)
-    flowsrc -> Timestamp() -> QueueOut(port=port0, qid=wid)
+        ip_src_range = 50, ip_dst_range = 50)
+    flowsrc -> Timestamp(offset=ts_offset) -> QueueOut(port=port0, qid=wid)
+    flowsrc.attach_task(wid=wid)
 
-port_inc -> Measure() -> Sink()
+port_inc -> Measure(offset=ts_offset) -> Sink()
 
 bess.add_worker(wid=num_cores, core=num_cores)
 bess.add_worker(wid=num_cores+1, core=num_cores+1)

@@ -21,7 +21,7 @@ func (w *Worker) ScheduleLoop() {
 			return
 		default:
 			w.noPackingScheduleOnce()
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 }

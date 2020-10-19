@@ -16,6 +16,7 @@ import struct
 import copy
 import time
 import collections
+import gflags
 import logging
 from operator import attrgetter
 from ryu.base import app_manager
@@ -53,8 +54,18 @@ supported_ofctl = {
     ofproto_v1_3.OFP_VERSION: ofctl_v1_3,
 }
 
-# Todo(Jianfeng): remove these hardcoded IPs.
-kFaaSServerAddress = "204.57.3.169:10515"
+
+FLAGS = gflags.FLAGS
+gflags.DEFINE_string("faas_ip", "128.105.145.134", "FaaS Controller's IP")
+gflags.DEFINE_string("faas_port", "10515", "FaaS Controller service's Port")
+gflags.DEFINE_boolean("verbose", False, "Verbose logs")
+gflags.DEFINE_boolean("pkt", True, "Monitor the number of packets from each flow")
+gflags.DEFINE_integer("inport", 44, "The switch port as the traffic ingress")
+
+
+kFaaSServerAddress = FLAGS.faas_ip + ":" + FLAGS.faas_port
+kDefaultMonitoringPeriod = 20
+kDefaultIdleTimeout = 60
 
 
 ryu_loggers = logging.Logger.manager.loggerDict
@@ -153,9 +164,13 @@ class FaaSSwitchController(app_manager.RyuApp):
         # internal counters
         self._flows_counter = 0
         self._pkts_counter = 0
+        self._lost_pkts_counter = 0
+        self._last_lost_pkts_ts = time.time()
+        self._last_lost_pkts_counter = 0
 
         # internal flow table
         self._flows = set()
+        self._flows_pkt_count = {}
         self._flows_table_entries = {}
 
     # The background monitoring function.
@@ -179,7 +194,11 @@ class FaaSSwitchController(app_manager.RyuApp):
                     self._print_formatted_flow_stats(flow_ret)
                     self._print_formatted_port_stats(port_ret)
 
-            hub.sleep(10)
+            if FLAGS.pkt:
+                self._print_pkt_stats()
+                self._print_loss_stats()
+
+            hub.sleep(kDefaultMonitoringPeriod)
 
     def _request_stats(self, datapath):
         ofproto = datapath.ofproto
@@ -203,10 +222,13 @@ class FaaSSwitchController(app_manager.RyuApp):
 
         datapath = list(flow_stats.keys())[0]
         body = flow_stats[datapath]
-        for flow in body:
-            DLOG.info('%17s %17s %8d %8d',
-                      str(flow["match"]), str(flow["actions"]), 
-                      flow["packet_count"], flow["byte_count"])
+
+        if FLAGS.verbose:
+            for flow in body:
+                DLOG.info('match:%17s actions:%17s pkts:%8d bytes:%8d',
+                          str(flow["match"]), str(flow["actions"]), 
+                          flow["packet_count"], flow["byte_count"])
+        DLOG.info("Total %d flows", len(body))
 
     def _print_formatted_port_stats(self, port_stats):
         DLOG.info('datapath           port_no '
@@ -223,6 +245,34 @@ class FaaSSwitchController(app_manager.RyuApp):
                              datapath, stat["port_no"],
                              stat["rx_packets"], stat["rx_bytes"], stat["rx_errors"], 
                              stat["tx_packets"], stat["tx_bytes"], stat["tx_errors"])
+
+    def _print_pkt_stats(self):
+        pkt_samples = sorted(self._flows_pkt_count.values())
+        count_flows = len(pkt_samples)
+        if count_flows == 0:
+            DLOG.info("No flow yet")
+            return
+
+        avg_val = sum(pkt_samples) / count_flows
+        min_val, max_val = pkt_samples[0], pkt_samples[-1]
+        p50_val, p95_val = pkt_samples[int(0.5*count_flows)], pkt_samples[int(0.95*count_flows)]
+
+        DLOG.info("Subsequent pkts from a flow:")
+        DLOG.info("total flows: %d, avg: %d, min: %d, 50pct: %d, 95pct: %d, max: %d", \
+            count_flows, avg_val, min_val, p50_val, p95_val, max_val)
+
+    def _print_loss_stats(self):
+        now = time.time()
+        lost_rate = (self._lost_pkts_counter - self._last_lost_pkts_counter) / (now - self._last_lost_pkts_ts)
+        self._last_lost_pkts_counter = self._lost_pkts_counter
+        self._last_lost_pkts_ts = now
+        DLOG.info("Lost packet rate: %d", lost_rate)
+
+    def _update_per_flow_pkt_stats(self, flowlet):
+        if flowlet not in self._flows_pkt_count:
+            self._flows_pkt_count[flowlet] = 1
+        else:
+            self._flows_pkt_count[flowlet] += 1
 
     # Deletes the stored msg in |self.msgs| after we are done with it.
     # Note: each msg is tagged by its transaction ID, i.e. |msg.xid|.
@@ -291,52 +341,63 @@ class FaaSSwitchController(app_manager.RyuApp):
         # Deletes existing flows.
         self.delete_all_flows(datapath)
 
-        # Adds default rules.
-        match = parser.OFPMatch()
-        actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
-                                          ofproto.OFPCML_NO_BUFFER)]
+        # The MAC-IP table (table ID: 100)
+        # The default rule that forwards all packets to the next table.
+        match_0 = parser.OFPMatch()
+        actions_0 = []
+        self.add_flow(datapath, match_0, actions_0, 100, priority=0, idle_timeout=0)
 
-        # Bypass the MAC-IP table.
-        match_1 = parser.OFPMatch()
-        actions_1 = []
-        self.add_flow(datapath, 0, match_1, actions_1, 100)
+        # The extension table (table ID: 200)
+        # Installs the table-miss flow entry for ingress unseen traffic.
+        match_1 = parser.OFPMatch(in_port=FLAGS.inport)
+        actions_1 = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, ofproto.OFPCML_NO_BUFFER)]
+        self.add_flow(datapath, match_1, actions_1, 200, priority=0, idle_timeout=0)
 
-        # Installs the table-miss flow entry.
-        match_2 = parser.OFPMatch()
-        actions_2 = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
-                                          ofproto.OFPCML_NO_BUFFER)]
-        self.add_flow(datapath, 0, match_2, actions_2, 200)
+        # Installs the egress rules for egress traffic.
+        match_2 = parser.OFPMatch(eth_dst="00:15:4d:12:2b:f4", eth_type=ether_types.ETH_TYPE_IP)
+        actions_2 = [parser.OFPActionOutput(FLAGS.inport)]
+        self.add_flow(datapath, match_2, actions_2, 200, priority=3, idle_timeout=0)
 
         """
+        # Switches all packets back to the traffic generator. 
+        match_3 = parser.OFPMatch(in_port=FLAGS.inport)
+        actions_3 = [parser.OFPActionOutput(FLAGS.inport)]
+        self.add_flow(datapath, match_3, actions_3, 200, priority=0, idle_timeout=0)
+
         # Installs rules for testing.
         match_3 = parser.OFPMatch(eth_src="11:11:11:11:11:11", eth_type=ether_types.ETH_TYPE_IP, 
             ipv4_src="10.0.0.1", ipv4_dst="10.0.0.2", ip_proto=in_proto.IPPROTO_TCP, 
             tcp_src=1234, tcp_dst=4321)
         actions_3 = [parser.OFPActionSetField(eth_dst="00:00:00:00:00:01"),
             parser.OFPActionOutput(17)]
-        self.add_flow(datapath, 1, match_3, actions_3, 200)
+        self.add_flow(datapath, match_3, actions_3, 200, priority=1, idle_timeout=0)
 
         match_4 = parser.OFPMatch(in_port=17)
         actions_4 = [parser.OFPActionOutput(9)]
-        self.add_flow(datapath, 1, match_4, actions_4, 200)
+        self.add_flow(datapath, match_4, actions_4, 200, priority=1, idle_timeout=0)
         """
 
-    def add_flow(self, datapath, priority, match, actions, table_id):
+    def add_flow(self, datapath, match, actions, table_id, priority, idle_timeout):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
+        hard_timeout = 0
 
         # construct the flow instruction
         inst = []
         if actions != None and len(actions) > 0:
             inst.append(parser.OFPInstructionActions(
                                 ofproto.OFPIT_APPLY_ACTIONS, actions))
-        if table_id == 100:
+        if table_id == 100 and len(actions) == 0:
             inst.append(parser.OFPInstructionGotoTable(200))
 
         # construct flow_mod message and send it.
-        mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
+        mod = parser.OFPFlowMod(datapath=datapath, table_id=table_id,
                                 command=ofproto.OFPFC_ADD,
-                                match=match, instructions=inst, table_id=table_id)
+                                idle_timeout=idle_timeout, hard_timeout=hard_timeout,
+                                priority=priority, buffer_id= ofproto.OFP_NO_BUFFER,
+                                out_port=ofproto.OFPP_ANY, out_group=ofproto.OFPG_ANY,
+                                flags=ofproto.OFPFF_SEND_FLOW_REM,
+                                match=match, instructions=inst)
         datapath.send_msg(mod)
 
     def delete_flow(self, datapath, priority, match, actions, table_id):
@@ -363,12 +424,14 @@ class FaaSSwitchController(app_manager.RyuApp):
         # This FlowMod matches all flows. So it will delete all flows at table 200.
         match = parser.OFPMatch()
         actions = []
+        self.delete_flow(datapath, 0, match, actions, 200)
         self.delete_flow(datapath, 1, match, actions, 200)
+        self.delete_flow(datapath, 2, match, actions, 200)
+        self.delete_flow(datapath, 3, match, actions, 200)
+        DLOG.info("Delete all existing flows..")
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
-        DLOG.info("Receive a packet.")
-
         msg = ev.msg
         datapath = msg.datapath
         ofproto = datapath.ofproto
@@ -396,7 +459,8 @@ class FaaSSwitchController(app_manager.RyuApp):
             if icmp_pkt == None:
                 return
 
-            DLOG.info("%d: ICMP pkt in port[%s]: (%s,%s)", dpid, in_port, eth_src, eth_dst)
+            if FLAGS.verbose:
+                DLOG.info("%d: ICMP pkt in port[%s]: (%s,%s)", dpid, in_port, eth_src, eth_dst)
 
             # icmp packets rely on the |self.mac_to_port| table.
             if eth_dst in self.mac_to_port[dpid]:
@@ -410,7 +474,7 @@ class FaaSSwitchController(app_manager.RyuApp):
             # install a flow to avoid packet_in next time.
             if out_port != ofproto.OFPP_FLOOD:
                 match = parser.OFPMatch(eth_dst=eth_dst, eth_type=ether_types.ETH_TYPE_IP)
-                self.add_flow(datapath, 1, match, actions, 200)
+                self.add_flow(datapath, match, actions, 200, priority=2, idle_timeout=kDefaultIdleTimeout)
 
             # learn a mac address to avoid FLOOD next time.
             self.mac_to_port[dpid][eth_src] = in_port
@@ -435,14 +499,27 @@ class FaaSSwitchController(app_manager.RyuApp):
             tcp_src, tcp_dst = tcp_pkt.src_port, tcp_pkt.dst_port
 
             flowlet = (ipv4_src, ipv4_dst, tcp_src, tcp_dst)
-            # Subsequent packets arrive before their table entry is installed.
-            # Just ignores them.
-            if flowlet in self._flows:
-                return
 
-            DLOG.info("%d: flow in port[%s] (%s,%s,%d,%d)", dpid, in_port, ipv4_src, ipv4_dst, tcp_src, tcp_dst)
-            self._flows.add(flowlet)
-            self._flows_counter += 1
+            if FLAGS.pkt:
+                self._update_per_flow_pkt_stats(flowlet)
+
+            # Ignore subsequent arrivals before its corresponding rule is installed.
+            if flowlet in self._flows:
+                if flowlet in self._flows_table_entries:
+                    _, _, prev, _, _ = self._flows_table_entries[flowlet]
+                    if time.time() - prev <= kDefaultIdleTimeout:
+                        self._lost_pkts_counter += 1
+                        return
+
+                    # A previously observed (timeout) flow.
+                    self._flows_pkt_count[flowlet] = 1
+                else:
+                    # Subsequent packet arrivals before the rule is installed
+                    DLOG.info(flowlet)
+                    return
+            else:
+                self._flows.add(flowlet)
+                self._flows_counter += 1
 
             flow_info = message_pb.FlowInfo()
             # Parses |flow_info| from the packet as it is the first packet of the flow.
@@ -457,22 +534,22 @@ class FaaSSwitchController(app_manager.RyuApp):
             response = faas_client.UpdateFlow(flow_info)
 
             if response.dmac == "none":
+                DLOG.info("FaaS Cluster does not have any available cores")
                 return
 
+            # OFPActionOutput takes an integer as input.
             select_dmac = response.dmac
             select_port = int(response.switch_port)
-            # Note: OFPActionOutput takes a hex integer as input.
-            select_port = 17
             actions = [parser.OFPActionSetField(eth_dst=select_dmac),
                 parser.OFPActionOutput(select_port)]
             # install a flow to avoid packet_in next time.
             match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IP, 
                 ipv4_src=ipv4_src, ipv4_dst=ipv4_dst, ip_proto=in_proto.IPPROTO_TCP, 
                 tcp_src=tcp_src, tcp_dst=tcp_dst)
-            self.add_flow(datapath, 2, match, actions, 200)
+            self.add_flow(datapath, match, actions, 200, priority=2, idle_timeout=kDefaultIdleTimeout)
 
             # inserts the new flow into the internal table.
-            self._flows_table_entries[flowlet] = (select_dmac, select_port)
+            self._flows_table_entries[flowlet] = (select_dmac, select_port, time.time(), match, actions)
 
             # construct packet_out message and send it.
             out = parser.OFPPacketOut(datapath=datapath,
